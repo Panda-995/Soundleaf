@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>声页 · 有声书工作室</title>
+<link rel="stylesheet" href="style.css"></head>
+<body>
+<aside class="sidebar"><a class="brand" href="#library"><span class="mark"><i></i><i></i><i></i></span>声页<span class="brand-dot">.</span></a><p class="brand-sub">小说有声化工作室</p><nav id="nav" aria-label="主导航"></nav><div class="side-bottom"><span class="status-dot"></span> 本地工作室 <small>设计原型 · 演示数据</small><button data-action="login">账户与首次设置 ↗</button></div></aside>
+<div class="shell"><header class="topbar"><button class="mobile-menu" aria-label="切换导航" data-action="menu">☰</button><span>我的工作室 <span class="slash">/</span> <span id="crumb">书架</span></span><div class="top-actions"><a href="gallery.html">查看 AI 设计图 ↗</a><button class="avatar" data-action="login" aria-label="账户设置">页</button></div></header><main id="main" tabindex="-1"></main></div>
+<footer class="transport"><div class="transport-book"><span class="mini-cover">声</span><div id="track-name">还没有载入音频<small>可载入本地音频体验播放器</small></div></div><div class="playback"><button data-action="back" aria-label="后退15秒">↶ 15</button><button class="play" data-action="play" aria-label="播放或暂停">▶</button><button data-action="forward" aria-label="前进15秒">15 ↷</button><span id="clock">00:00</span><input id="seek" type="range" min="0" max="100" value="0" aria-label="音频播放进度"><span id="duration">00:00</span></div><div class="transport-extra"><select id="rate" aria-label="播放倍速"><option value="1">1.0×</option><option value="0.8">0.8×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2.0×</option></select><label class="audio-label">载入音频<input id="audio-file" type="file" accept="audio/*"></label></div><audio id="audio" preload="metadata"></audio></footer>
+<dialog id="dialog"><button class="dialog-close" data-action="close" aria-label="关闭">×</button><div id="dialog-content"></div></dialog><div id="toast" role="status" aria-live="polite"></div>
+<script src="app.js"></script></body></html>

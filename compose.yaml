@@ -1,0 +1,18 @@
+services:
+  soundleaf:
+    build: .
+    image: soundleaf:local
+    ports:
+      - "${WEB_PORT:-8780}:8780"
+    volumes:
+      - "${DATA_PATH:-./data}:/data"
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
+    environment:
+      TZ: "${TZ:-Asia/Shanghai}"
+      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
+    restart: unless-stopped
+    stop_grace_period: 30s
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

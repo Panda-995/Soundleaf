@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "checks": [
+    "UTF-8 TXT two chapter parsing and preview",
+    "local WAV metadata",
+    "local playback progress",
+    "playback speed 1.5",
+    "JSON manifest download"
+  ],
+  "note": "Silent WAV only tests browser playback. No speech engine or real narration tested."
+}

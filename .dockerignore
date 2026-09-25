@@ -1,0 +1,12 @@
+*
+!Dockerfile
+!docker-entrypoint.sh
+!requirements.lock
+!app
+!app/**
+!frontend
+!frontend/**
+frontend/node_modules
+frontend/dist
+frontend/tsconfig.tsbuildinfo
+app/__pycache__

@@ -1,0 +1,5 @@
+{
+  "page": "04-director",
+  "reason": "Initial requests failed with network errors; simplified prompt succeeded.",
+  "prompt": "Generate a polished 1536x1024 desktop web app UI screenshot for 声页, a Chinese novel-to-audiobook studio. This is the AI 导演 page. Graphite black background, dark olive panels, pale lime buttons, mint audio waveforms, readable white Chinese text. Left sidebar: 书架, 导入小说, 章节工作台, AI 导演 (active), 音色库, 任务队列, 试听, 导出, 设置. Header: 第七章 灯塔来客, buttons 保存 and 生成本章. Three columns: chapter list on left; spacious novel script in middle with narrator and dialogue blocks labelled 旁白 平静, 林舟 迟疑, 沈雾 轻声; right inspector 朗读设置 with voice 远山, 情绪 克制, 合成语速 0.95× slider, 停顿 450 ms. One script block selected in lime. Bottom segmented audio waveform timeline and 试听选段 button. Sophisticated useful recording studio interface, thin borders, precise alignment, no laptop frame, flat screenshot, all Chinese. Small label 设计预览."
+}

@@ -1,0 +1,54 @@
+spec_version: "2.1"
+app_id: com.panda.soundleaf
+version: 1.1.0
+support_arch:
+  - amd64
+  - arm64
+supports:
+  - app
+  - pc
+is_docker_app: true
+only_admin: true
+allow_add_access_path: true
+port: 8780
+open_type: tab
+tag_types:
+  - utility
+depend_fw_version: 1.13.0.0000
+depend_docker_version: 1.7.0.0000
+license_agreement_link:
+  - https://github.com/Panda-995/Soundleaf/blob/main/LICENSE
+source_code_link:
+  - https://github.com/Panda-995/Soundleaf
+privacy_policy_link:
+  - https://github.com/Panda-995/Soundleaf/blob/main/frontend/public/privacy-policy.html
+parameters:
+  - key: DATA_PATH
+    type: path
+    multi: false
+    required: false
+    changeable: true
+    i18n:
+      en-US:
+        name: Data folder
+        description: Choose a writable folder for the database, audiobook files and exports. Shared folders must be authorized for this app in UGOS Pro settings. Leave blank to use the app-internal ./data directory. Stop the app and move existing data before switching folders.
+      zh-CN:
+        name: 数据文件夹
+        description: 选择存放数据库、音频成品与导出包的可读写文件夹；共享文件夹还需在绿联应用设置中授权本应用访问。留空则使用应用内置的 ./data 目录。更换文件夹前请先停用应用并迁移原数据。
+i18n:
+  en-US:
+    name: Soundleaf
+    description: Soundleaf is a self-hosted audiobook studio for novels. Deploy it on a personal server or NAS and produce audiobooks chapter by chapter in the browser. Upload TXT or EPUB books with automatic chapter splitting, let AI mark dialogue and narration, assign character voices and emotion styles, and fix pronunciations with a per-book lexicon. A book-level cast library keeps every character's voice consistent across chapters, and a revised sentence can be regenerated in seconds without re-rendering the whole chapter. Export M4B audiobooks with chapter navigation or per-chapter MP3/WAV archives, with loudness normalization, real waveforms, playback progress and a persistent job queue. Works with MiniMax or OpenAI-compatible speech and chat services; keys are stored encrypted in the local data directory. Single user, single container, no GPU required. Licensed under GNU AGPL v3.0. The project is not affiliated with or partnered with the third-party brands mentioned.
+    author: 熊猫不是猫QAQ
+    official: https://github.com/Panda-995/Soundleaf
+    help: https://github.com/Panda-995/Soundleaf/issues
+    publisher: 熊猫不是猫QAQ
+    publisher_link: https://github.com/Panda-995
+  zh-CN:
+    name: 声页
+    description: 声页 Soundleaf 是自托管的小说有声书制作工作室，可部署在个人服务器或 NAS 上，通过浏览器逐章制作、试听和导出有声书。支持上传 TXT 与 EPUB 小说并自动分章，AI 自动标注对白与旁白、分配角色音色与情绪风格，读音词典可修正多音字、人名与地名；书级角色库统一管理全书音色绑定，保证同一角色跨章节音色一致，改完一句话只需几秒即可单独重合成该片段。支持 M4B 章节有声书与逐章 MP3/WAV 导出、响度归一化、真实波形试听、播放进度记忆与持久化任务队列。语音服务支持 MiniMax 及兼容 /audio/speech 的自定义接口，AI 分析支持兼容 /chat/completions 的服务，密钥加密保存在本地数据目录。单账户、单容器运行，无需 GPU。项目采用 GNU AGPL v3.0 开源，与所提及的第三方品牌不存在隶属或合作关系。
+    author: 熊猫不是猫QAQ
+    official: https://github.com/Panda-995/Soundleaf
+    help: https://github.com/Panda-995/Soundleaf/issues
+    publisher: 熊猫不是猫QAQ
+    publisher_link: https://github.com/Panda-995

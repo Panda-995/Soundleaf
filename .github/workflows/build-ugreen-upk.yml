@@ -1,0 +1,128 @@
+name: Build UGOS Pro UPK
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: UGOS Pro package build number
+        required: true
+        default: "0001"
+      release_tag:
+        description: Optional GitHub Release tag to publish the UPK files to
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  packages: read
+
+env:
+  APP_VERSION: 1.1.0
+  GHCR_IMAGE: ghcr.io/panda-995/soundleaf
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+
+      - name: Prepare package directories
+        run: |
+          mkdir -p \
+            ugreen/soundleaf-app/rootfs_amd64/images \
+            ugreen/soundleaf-app/rootfs_arm64/images
+
+      - name: Verify package version metadata
+        run: |
+          test "$(awk '/^version:/ { print $2 }' ugreen/soundleaf-app/project.yaml)" = "${APP_VERSION}"
+          grep -Fq "image: ${GHCR_IMAGE}:${APP_VERSION}" \
+            ugreen/soundleaf-app/rootfs_common/docker-compose.yaml
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Export amd64 image
+        run: |
+          docker pull --platform linux/amd64 ${GHCR_IMAGE}:${APP_VERSION}-amd64
+          docker tag \
+            ${GHCR_IMAGE}:${APP_VERSION}-amd64 \
+            ${GHCR_IMAGE}:${APP_VERSION}
+          test "$(docker image inspect ${GHCR_IMAGE}:${APP_VERSION} --format '{{.Architecture}}')" = "amd64"
+          docker save \
+            -o ugreen/soundleaf-app/rootfs_amd64/images/soundleaf-${APP_VERSION}-amd64.tar \
+            ${GHCR_IMAGE}:${APP_VERSION}
+
+      - name: Export arm64 image
+        run: |
+          docker image rm ${GHCR_IMAGE}:${APP_VERSION}
+          docker pull --platform linux/arm64 ${GHCR_IMAGE}:${APP_VERSION}-arm64
+          docker tag \
+            ${GHCR_IMAGE}:${APP_VERSION}-arm64 \
+            ${GHCR_IMAGE}:${APP_VERSION}
+          test "$(docker image inspect ${GHCR_IMAGE}:${APP_VERSION} --format '{{.Architecture}}')" = "arm64"
+          docker save \
+            -o ugreen/soundleaf-app/rootfs_arm64/images/soundleaf-${APP_VERSION}-arm64.tar \
+            ${GHCR_IMAGE}:${APP_VERSION}
+
+      - name: Install official ugcli
+        run: |
+          tool=ugcli-v1.1.0.13-linux-amd64
+          curl -fsSL --connect-timeout 15 --max-time 60 --retry 2 --retry-all-errors \
+            "https://osswaf.ugnas.com/pro/ugcli/download/$tool" \
+            -o "$RUNNER_TEMP/$tool"
+          echo "c455dd38def630db2566ae32d0850230ee89abbc948bd1df4819364e88b77713  $RUNNER_TEMP/$tool" | sha256sum -c -
+          install -m 755 "$RUNNER_TEMP/$tool" /usr/local/bin/ugcli
+          ugcli --version
+
+      - name: Check and package UPK
+        working-directory: ugreen/soundleaf-app
+        run: |
+          ugcli check
+          ugcli pack --arch all --build "${{ inputs.build_number }}"
+
+      - name: Verify generated installation parameters and folder mappings
+        run: |
+          python3 -m pip install PyYAML==6.0.3
+          python3 scripts/verify-ugreen-template.py ugreen/soundleaf-app/build_dir/rootfs
+
+      - name: Generate checksums
+        working-directory: ugreen/soundleaf-app/build_dir/pkgs/upk
+        run: |
+          find . -maxdepth 1 -type f -name '*.upk' -printf '%f\0' \
+            | sort -z \
+            | xargs -0 sha256sum \
+            > SHA256SUMS-UPK
+
+      - name: Upload UPK packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: soundleaf-ugos-pro-${{ env.APP_VERSION }}.${{ inputs.build_number }}
+          path: |
+            ugreen/soundleaf-app/build_dir/pkgs/upk/*.upk
+            ugreen/soundleaf-app/build_dir/pkgs/upk/SHA256SUMS-UPK
+            ugreen/soundleaf-app/project.yaml
+            ugreen/soundleaf-app/rootfs_common/docker-compose.yaml
+            ugreen/soundleaf-app/rootfs_common/icon.png
+            ugreen/README.md
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish UPK packages to GitHub Release
+        if: ${{ inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          test "$RELEASE_TAG" = "v${APP_VERSION}"
+          gh release upload "$RELEASE_TAG" \
+            ugreen/soundleaf-app/build_dir/pkgs/upk/*.upk \
+            ugreen/soundleaf-app/build_dir/pkgs/upk/SHA256SUMS-UPK \
+            --clobber \
+            --repo "$GITHUB_REPOSITORY"

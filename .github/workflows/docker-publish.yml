@@ -1,0 +1,149 @@
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  APP_VERSION: 1.1.0
+  GHCR_IMAGE: ghcr.io/panda-995/soundleaf
+
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 发布门禁：镜像构建前必须通过静态检查、后端测试和前端构建
+  quality-gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.lock && pip install pytest==9.1.1 ruff==0.16.7
+
+      - name: Static check and tests
+        run: ruff check app tests && python -m pytest
+
+      - name: Build frontend
+        run: npm ci && npm run build
+        working-directory: frontend
+
+  build:
+    needs: [quality-gate]
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            suffix: amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            suffix: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify source version
+        run: grep -Fq "version = \"${APP_VERSION}\"" pyproject.toml
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push per-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          push: true
+          provenance: false
+          sbom: false
+          tags: |
+            ${{ env.GHCR_IMAGE }}:${{ matrix.suffix }}
+            ${{ env.GHCR_IMAGE }}:${{ env.APP_VERSION }}-${{ matrix.suffix }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify native image startup and data-dir bootstrap
+        run: |
+          docker pull ${GHCR_IMAGE}:${APP_VERSION}-${{ matrix.suffix }}
+          docker run -d --name soundleaf-smoke ${GHCR_IMAGE}:${APP_VERSION}-${{ matrix.suffix }}
+          trap 'docker logs soundleaf-smoke; docker rm -fv soundleaf-smoke' EXIT
+          docker exec -i soundleaf-smoke python - <<'PY'
+          import time, urllib.request
+          ready = False
+          for _ in range(30):
+              try:
+                  if urllib.request.urlopen('http://127.0.0.1:8780/health/ready', timeout=3).status == 200:
+                      ready = True
+                      break
+              except Exception:
+                  time.sleep(1)
+          assert ready, 'production image did not become healthy'
+          assert urllib.request.urlopen('http://127.0.0.1:8780/', timeout=5).status == 200
+          assert urllib.request.urlopen('http://127.0.0.1:8780/privacy-policy.html', timeout=5).status == 200
+          import os
+          assert os.stat('/data').st_uid == 1000, '/data must be owned by the unprivileged app user'
+          print('Native production image startup, static resources and data-dir ownership verified.')
+          PY
+
+  merge-manifest:
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifest (GHCR)
+        run: |
+          docker buildx imagetools create \
+            -t ${{ env.GHCR_IMAGE }}:latest \
+            -t ${{ env.GHCR_IMAGE }}:${{ env.APP_VERSION }} \
+            ${{ env.GHCR_IMAGE }}:${{ env.APP_VERSION }}-amd64 \
+            ${{ env.GHCR_IMAGE }}:${{ env.APP_VERSION }}-arm64
+
+      - name: Verify published image (GHCR)
+        run: |
+          docker buildx imagetools inspect ${{ env.GHCR_IMAGE }}:latest
+          docker buildx imagetools inspect ${{ env.GHCR_IMAGE }}:${{ env.APP_VERSION }}

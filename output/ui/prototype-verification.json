@@ -1,0 +1,103 @@
+{
+  "errors": [],
+  "results": [
+    {
+      "route": "library",
+      "title": "我的书架",
+      "overflow": false
+    },
+    {
+      "route": "import",
+      "title": "导入小说",
+      "overflow": false
+    },
+    {
+      "route": "chapters",
+      "title": "雾海来信",
+      "overflow": false
+    },
+    {
+      "route": "director",
+      "title": "第七章　灯塔来客",
+      "overflow": false
+    },
+    {
+      "route": "voices",
+      "title": "为故事挑选声音",
+      "overflow": false
+    },
+    {
+      "route": "queue",
+      "title": "任务队列",
+      "overflow": false
+    },
+    {
+      "route": "listen",
+      "title": "听见故事",
+      "overflow": false
+    },
+    {
+      "route": "export",
+      "title": "导出有声书",
+      "overflow": false
+    },
+    {
+      "route": "settings",
+      "title": "设置",
+      "overflow": false
+    },
+    {
+      "route": "library",
+      "width": 390,
+      "overflow": false
+    },
+    {
+      "route": "import",
+      "width": 390,
+      "overflow": false
+    },
+    {
+      "route": "chapters",
+      "width": 390,
+      "overflow": false
+    },
+    {
+      "route": "director",
+      "width": 390,
+      "overflow": false
+    },
+    {
+      "route": "voices",
+      "width": 390,
+      "overflow": false
+    },
+    {
+      "route": "queue",
+      "width": 390,
+      "overflow": false
+    },
+    {
+      "route": "listen",
+      "width": 390,
+      "overflow": false
+    },
+    {
+      "route": "export",
+      "width": 390,
+      "overflow": false
+    },
+    {
+      "route": "settings",
+      "width": 390,
+      "overflow": false
+    }
+  ],
+  "checks": [
+    "nine routes desktop and mobile",
+    "voice filtering",
+    "director save",
+    "generation confirmation",
+    "export manifest",
+    "setup form"
+  ]
+}

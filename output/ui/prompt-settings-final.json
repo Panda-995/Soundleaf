@@ -1,0 +1,4 @@
+{
+  "page": "09-settings",
+  "reason": "Initial requests failed with network errors; simplified final retry."
+}

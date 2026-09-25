@@ -1,0 +1,30 @@
+services:
+  soundleaf:
+    image: ghcr.io/panda-995/soundleaf:1.1.0
+    container_name: soundleaf
+    ports:
+      - "8780:8780"
+    volumes:
+      # {{ if and .DATA_PATH (index .DATA_PATH 0) }}
+      - type: bind
+        source: |-
+          ${DATA_PATH}
+        target: /data
+        read_only: false
+      # {{ else }}
+      - ./data:/data
+      # {{ end }}
+    environment:
+      TZ: Asia/Shanghai
+      COOKIE_SECURE: "false"
+    restart: always
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8780/health/ready', timeout=4)
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
