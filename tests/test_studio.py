@@ -20,7 +20,9 @@ def test_auth_csrf_and_no_public_audio(client):
     assert client.post("/api/queue", json={"paused": True}).status_code == 403
     client.headers["X-Soundleaf"] = "1"
     # The setup endpoint is gone: accounts are seeded, not self-created.
-    assert client.post("/api/setup", json={"name": "other", "password": "test-password"}).status_code == 405
+    # POST lands 405 via the static-files mount when frontend/dist exists,
+    # and 404 on fresh checkouts without a frontend build.
+    assert client.post("/api/setup", json={"name": "other", "password": "test-password"}).status_code in (404, 405)
     assert client.post("/api/logout").status_code == 200
     assert client.get("/api/books").status_code == 401
     assert client.get("/api/audio/anything").status_code == 401

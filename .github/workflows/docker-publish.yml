@@ -42,12 +42,13 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.lock && pip install pytest==9.1.1 ruff==0.16.7
 
-      - name: Static check and tests
-        run: ruff check app tests && python -m pytest
-
       - name: Build frontend
         run: npm ci && npm run build
         working-directory: frontend
+
+      # Tests run production-like, with the built frontend present.
+      - name: Static check and tests
+        run: ruff check app tests && python -m pytest
 
   build:
     needs: [quality-gate]

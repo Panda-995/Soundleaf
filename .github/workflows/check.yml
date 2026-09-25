@@ -19,9 +19,11 @@ jobs:
       # Tool versions match the local verification toolchain (ruff 0.16.x,
       # pytest 9.x); requirements.lock deliberately excludes dev tools.
       - run: pip install -r requirements.lock && pip install pytest==9.1.1 ruff==0.16.7
-      - run: ruff check app tests && python -m pytest
+      # Build the frontend before pytest: the app only mounts its static
+      # layer when dist exists, and tests should run production-like.
       - run: npm ci && npm run build
         working-directory: frontend
+      - run: ruff check app tests && python -m pytest
   browser:
     # Full browser pass against the mock-provider fixture: the same 12-step
     # flow and theme/viewport audit the local verification checklist runs.
