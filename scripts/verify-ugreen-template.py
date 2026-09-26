@@ -44,6 +44,7 @@ for case in json.loads(rendered):
     assert service["image"] == image
     assert service["ports"] == ["8780:8780"]
     assert service["environment"]["COOKIE_SECURE"] == "false"
+    assert service["environment"]["ALLOW_ROOT_DATA_FALLBACK"] == "true"
     assert service["restart"] == "always"
     print(f"PASS {case['name']}: exactly one correct data mount")
 print(f"PASS bilingual installer metadata, optional folder picker and {image} pinning")

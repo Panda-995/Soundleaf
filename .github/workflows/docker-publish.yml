@@ -120,6 +120,37 @@ jobs:
           print('Native production image startup, static resources and data-dir ownership verified.')
           PY
 
+      - name: Verify NAS-style unwritable data dir falls back instead of crash-looping
+        run: |
+          mkdir ro-data && chmod 555 ro-data
+          docker run -d --name soundleaf-ro -e ALLOW_ROOT_DATA_FALLBACK=true \
+            -v "$PWD/ro-data:/data" ${GHCR_IMAGE}:${APP_VERSION}-${{ matrix.suffix }}
+          trap 'docker logs soundleaf-ro; docker rm -fv soundleaf-ro; sudo rm -rf ro-data' EXIT
+          docker exec -i soundleaf-ro python - <<'PY'
+          import time, urllib.request
+          ready = False
+          for _ in range(30):
+              try:
+                  if urllib.request.urlopen('http://127.0.0.1:8780/health/ready', timeout=3).status == 200:
+                      ready = True
+                      break
+              except Exception:
+                  time.sleep(1)
+          assert ready, 'container did not survive an unwritable-by-app-user data dir'
+          print('Unwritable NAS-style data dir: app keeps running (fallback path).')
+          PY
+
+      - name: Verify fail-closed error without the fallback flag
+        run: |
+          mkdir ro-data && chmod 555 ro-data
+          trap 'sudo rm -rf ro-data' EXIT
+          set +e
+          docker run --rm -v "$PWD/ro-data:/data" ${GHCR_IMAGE}:${APP_VERSION}-${{ matrix.suffix }} >/dev/null 2>&1
+          code=$?
+          set -e
+          test "$code" = "73" || { echo "expected exit 73 on unwritable data dir, got $code"; exit 1; }
+          echo 'Unwritable data dir without fallback: exits 73 with a clear error (no crash loop).'
+
   merge-manifest:
     needs: [build]
     runs-on: ubuntu-latest

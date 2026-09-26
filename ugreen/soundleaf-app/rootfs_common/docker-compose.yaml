@@ -17,6 +17,8 @@ services:
     environment:
       TZ: Asia/Shanghai
       COOKIE_SECURE: "false"
+      # 共享文件夹拒绝 chown 时允许以容器 root 继续，避免启动崩溃循环。
+      ALLOW_ROOT_DATA_FALLBACK: "true"
     restart: always
     healthcheck:
       test:

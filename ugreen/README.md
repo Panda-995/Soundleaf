@@ -20,6 +20,8 @@
 
 升级时保持数据文件夹选项与原版一致即可；更换目录前先停用应用，把原数据目录的全部内容（包括 `studio.sqlite3`、`secret.key` 及 SQLite 的 WAL/SHM 文件）复制到新目录，确认应用拥有读写权限后再修改文件夹配置并启动。文件夹选择仅改变挂载位置，不会自动搬迁旧文件。`secret.key` 必须与数据库一同迁移，否则已保存的服务密钥无法解密。一个数据目录只供一个声页实例使用。
 
+数据目录权限：容器启动时会尝试把应用数据路径的属主接管为非特权运行账户（仅处理应用自身的数据库、密钥与子目录，不递归改动所选共享文件夹里的其他文件）。若 NAS 文件夹拒绝 chown（保留原属主或挂载层限制），应用会先尝试以可写的目录属主身份运行，仍不可写时按 `ALLOW_ROOT_DATA_FALLBACK=true`（UPK 默认开启）以容器 root 继续运行，避免反复重启；两者都不可写时容器以退出码 73 给出明确错误提示。
+
 ### Installation and data folder
 
 Install the UPK for your NAS architecture. In the installation wizard, use **Data folder** to select a writable folder for the database, source novels, audiobook files and exports; authorize the app for shared folders in UGOS Pro settings. Leave the folder blank to use the app-internal `./data` directory. After installation, open `http://NAS-IP:8780`, sign in with `admin / admin` (a password change is forced on first login) and configure your speech and AI services in Settings. To move the data folder later, stop the app and copy the whole directory including `studio.sqlite3` and `secret.key`.
