@@ -1,6 +1,6 @@
 spec_version: "2.1"
 app_id: com.panda.soundleaf
-version: 1.1.0
+version: 1.2.0
 support_arch:
   - amd64
   - arm64
