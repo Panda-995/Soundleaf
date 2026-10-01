@@ -94,7 +94,7 @@ def test_edit_two_segments_regen_one_leaves_rest_stale(client, monkeypatch, wav_
     """Regenerating ONE of two edited segments must keep the chapter marked
     stale (the other segment's audio still holds old text) — until the second
     regen completes."""
-    monkeypatch.setattr(providers, "synthesize", lambda config, s: wav_bytes)
+    monkeypatch.setattr(providers, "synthesize", lambda config, s, store=None: wav_bytes)
     b = import_book(client, "第一章 台球\n第一段的内容。\n第二段的内容。\n第三段的内容。")
     cid = b["chapters"][0]["id"]
     run_job(
@@ -134,7 +134,7 @@ def test_regen_applies_changed_pause_without_residual(client, monkeypatch, wav_b
     """A regenerated segment replaces its WHOLE slot (speech + old pause) and
     the new pause lands as real silence: timeline end matches file duration,
     no residual/overlap even for the LAST segment with a changed pause."""
-    monkeypatch.setattr(providers, "synthesize", lambda config, s: wav_bytes)
+    monkeypatch.setattr(providers, "synthesize", lambda config, s, store=None: wav_bytes)
     b = import_book(client, "第一章 台球\n第一段的内容。\n第二段的内容。")
     cid = b["chapters"][0]["id"]
     run_job(
@@ -178,7 +178,7 @@ def test_cast_change_marks_voice_stale_but_keeps_audio_playable(client, monkeypa
         f.setframerate(24000)
         f.writeframes(b"\x00\x10" * 4800)
     wav_bytes = out.getvalue()
-    monkeypatch.setattr(providers, "synthesize", lambda config, s: wav_bytes)
+    monkeypatch.setattr(providers, "synthesize", lambda config, s, store=None: wav_bytes)
     run_job(
         client,
         client.post(

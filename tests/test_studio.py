@@ -144,7 +144,7 @@ def test_revision_conflict_and_ownership(client):
 
 def test_generation_cache_range_versions_and_export(client, monkeypatch, wav_bytes):
     calls = []
-    monkeypatch.setattr(providers, "synthesize", lambda config, s: calls.append(s["text"]) or wav_bytes)
+    monkeypatch.setattr(providers, "synthesize", lambda config, s, store=None: calls.append(s["text"]) or wav_bytes)
     b = import_book(client)
     ids = [c["id"] for c in b["chapters"]]
     submitted = client.post(f"/api/books/{b['id']}/generate", json={"chapter_ids": ids}).json()["ids"]
@@ -182,7 +182,7 @@ def test_generation_cache_range_versions_and_export(client, monkeypatch, wav_byt
 
 
 def test_stale_job_never_promotes_over_new_revision(client, monkeypatch, wav_bytes):
-    monkeypatch.setattr(providers, "synthesize", lambda config, s: wav_bytes)
+    monkeypatch.setattr(providers, "synthesize", lambda config, s, store=None: wav_bytes)
     b = import_book(client)
     cid = b["chapters"][0]["id"]
     ident = client.post(f"/api/books/{b['id']}/generate", json={"chapter_ids": [cid]}).json()["ids"][0]
@@ -291,7 +291,7 @@ def test_restart_recovers_queue_but_preserves_uncertain_requests(tmp_path):
 
 
 def test_download_and_progress_validate_book(client, monkeypatch, wav_bytes):
-    monkeypatch.setattr(providers, "synthesize", lambda config, s: wav_bytes)
+    monkeypatch.setattr(providers, "synthesize", lambda config, s, store=None: wav_bytes)
     b = import_book(client)
     ident = client.post(
         f"/api/books/{b['id']}/generate", json={"chapter_ids": [b["chapters"][0]["id"]]}
@@ -323,7 +323,7 @@ def test_retry_cannot_duplicate_active_chapter_job(client):
 
 
 def test_delete_book_cascades_chapters_audio_and_files(client, monkeypatch, wav_bytes, tmp_path):
-    monkeypatch.setattr(providers, "synthesize", lambda config, s: wav_bytes)
+    monkeypatch.setattr(providers, "synthesize", lambda config, s, store=None: wav_bytes)
     b = import_book(client)
     store = client.app.state.store
     # Trigger generation so audio rows and cache files exist.
@@ -819,7 +819,7 @@ def test_voice_rules_narration_mislabel_and_book_cast(client, monkeypatch, wav_b
 
     seen = []
 
-    def fake_synth(config, segment):
+    def fake_synth(config, segment, store=None):
         seen.append((segment["text"], segment["voice"]))
         return wav_bytes
 
@@ -951,7 +951,7 @@ def test_segment_regen_splices_in_place(client, monkeypatch, wav_bytes):
     b = import_book(client, "第一章 台球\n第一段。\n第二段。\n第三段。")
     cid = b["chapters"][0]["id"]
     job = client.post(f"/api/books/{b['id']}/generate", json={"chapter_ids": [cid]}).json()["ids"][0]
-    monkeypatch.setattr(providers, "synthesize", lambda config, s: wav_bytes)
+    monkeypatch.setattr(providers, "synthesize", lambda config, s, store=None: wav_bytes)
     run_job(client, job)
     old = client.get("/api/chapters/" + cid).json()
     old_audio_id = old["active_audio"]
@@ -971,7 +971,7 @@ def test_segment_regen_splices_in_place(client, monkeypatch, wav_bytes):
 
     calls = []
 
-    def long_wav(config, segment):
+    def long_wav(config, segment, store=None):
         calls.append(segment["text"])
         output = io.BytesIO()
         with wave.open(output, "wb") as f:
@@ -1022,7 +1022,7 @@ def test_reading_style_scales_pauses_without_resynthesis(client, monkeypatch, wa
     monkeypatch.setattr(
         providers,
         "synthesize",
-        lambda config, s: (calls.append(s["text"]), wav_bytes)[1],
+        lambda config, s, store=None: (calls.append(s["text"]), wav_bytes)[1],
     )
     run_job(client, client.post(f"/api/books/{b['id']}/generate", json={"chapter_ids": [cid]}).json()["ids"][0])
     assert len(calls) == 3
@@ -1052,7 +1052,7 @@ def test_generation_flags_silent_audio(client, monkeypatch):
         f.setframerate(24000)
         f.writeframes(b"\x00\x00" * 2400)
     b = import_book(client, "第一章 台球\n第一段。\n第二段。")
-    monkeypatch.setattr(providers, "synthesize", lambda config, s: silent.getvalue())
+    monkeypatch.setattr(providers, "synthesize", lambda config, s, store=None: silent.getvalue())
     run_job(
         client,
         client.post(f"/api/books/{b['id']}/generate", json={"chapter_ids": [b["chapters"][0]["id"]]}).json()["ids"][0],

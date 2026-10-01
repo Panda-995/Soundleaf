@@ -12,12 +12,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request, Response, UploadFile
+from fastapi import FastAPI, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
-from app import importer, providers
+from app import importer, local_tts, providers
 from app.audio import safe_name
 from app.cover import render_cover_svg
 from app.security import password_hash, password_valid, validate_url
@@ -154,7 +154,7 @@ def create_app(data_dir=None, start_worker=True):
         if start_worker:
             await asyncio.to_thread(worker.thread.join, 5)
 
-    app = FastAPI(title="声页", version="1.1.0", lifespan=lifespan, docs_url=None, redoc_url=None)
+    app = FastAPI(title="声页", version="1.2.0", lifespan=lifespan, docs_url=None, redoc_url=None)
     app.state.store = store
     app.state.worker = worker
 
@@ -219,6 +219,13 @@ def create_app(data_dir=None, start_worker=True):
 
     def snapshot(config):
         return store.cipher.encrypt(json.dumps(config).encode()).decode()
+
+    def voice_catalog(config):
+        """Selectable voices for the active TTS provider: the stored cloud
+        catalogue, or the live local catalog (built-in + clones)."""
+        if config.get("provider") == "local":
+            return local_tts.list_voices(store)
+        return store.get("voices")
 
     @app.get("/health/live")
     def live():
@@ -333,6 +340,7 @@ def create_app(data_dir=None, start_worker=True):
         return {
             "tts": public_config(store.get("tts")),
             "ai": public_config(store.get("ai")),
+            "tts_cloud": public_config(store.get("tts_cloud") or {}),
             "notify": store.get("notify"),
             "paused": store.get("paused"),
             "favorites": store.get("favorites"),
@@ -362,12 +370,47 @@ def create_app(data_dir=None, start_worker=True):
         if kind not in ("ai", "tts"):
             raise HTTPException(404)
         value = body.model_dump()
+        if kind == "tts" and body.provider not in ("minimax", "compatible", "local"):
+            raise ValueError("不支持的语音服务类型")
+        if kind == "tts" and body.provider == "local":
+            # Local synthesis reads no HTTP endpoint; blank the cloud fields
+            # so leftover base_url/model values cannot leak into the local
+            # cache identity (and the stale URL never hits SSRF validation).
+            value["base_url"] = ""
+            value["model"] = ""
+            catalog = {v["id"] for v in local_tts.list_voices(store)}
+            if value["voice"] not in catalog:
+                value["voice"] = local_tts.DEFAULT_VOICE
         if value["base_url"]:
             value["base_url"] = validate_url(value["base_url"], value["allow_local"])
-        if kind == "tts" and body.provider not in ("minimax", "compatible"):
-            raise ValueError("不支持的语音服务类型")
+        old = store.get(kind)
+        if kind == "tts":
+            # Keep a snapshot of the cloud connection so switching to the
+            # local engine and back restores it without retyping. Updated on
+            # every cloud save, and on the real cloud→local transition only
+            # (local→local saves carry no cloud values and must not blank it).
+            cloud = store.get("tts_cloud") or {}
+            if body.provider == "local":
+                if old.get("provider") and old["provider"] != "local":
+                    cloud = {
+                        key: old.get(key, "")
+                        for key in ("provider", "base_url", "model", "voice", "allow_local", "api_key")
+                    }
+            else:
+                cloud = {
+                    key: value[key]
+                    for key in ("provider", "base_url", "model", "voice", "allow_local", "api_key")
+                }
+            store.set("tts_cloud", cloud)
         if not value["api_key"]:
-            value["api_key"] = store.get(kind).get("api_key", "")
+            value["api_key"] = old.get("api_key", "")
+        if kind == "tts":
+            # Snapshot after the api_key backfill so a saved-but-empty key can
+            # never enter the cloud snapshot as "".
+            cloud = store.get("tts_cloud") or {}
+            if body.provider != "local" and value.get("api_key"):
+                cloud["api_key"] = value["api_key"]
+            store.set("tts_cloud", cloud)
         store.set(kind, value)
         if kind == "tts":
             store.set("voices", [])
@@ -382,6 +425,18 @@ def create_app(data_dir=None, start_worker=True):
             voices = providers.list_voices(config)
             store.set("voices", voices)
             return {"message": f"已连接，获取到 {len(voices)} 个音色"}
+        if kind == "tts" and config["provider"] == "local":
+            missing = local_tts.dependency_error()
+            if missing:
+                return {"message": f"本地引擎依赖未安装：{missing}"}
+            ready = [
+                spec["name"]
+                for model_id, spec in local_tts.MODELS.items()
+                if local_tts.status(store, model_id)["state"] == "ready"
+            ]
+            if not ready:
+                return {"message": "本地引擎依赖正常，但还没有已下载的模型，请在下方模型管理中下载"}
+            return {"message": f"本地引擎就绪：{'、'.join(ready)}；纯 CPU 合成，速度慢于云服务"}
         url = validate_url(config["base_url"], config.get("allow_local"))
         try:
             with httpx.Client(timeout=15, trust_env=False, follow_redirects=False) as client:
@@ -398,17 +453,20 @@ def create_app(data_dir=None, start_worker=True):
 
     @app.get("/api/voices")
     def voices():
-        values = store.get("voices")
         config = store.get("tts")
-        if not values and config.get("voice"):
-            values = [
-                {
-                    "id": config["voice"],
-                    "name": config["voice"],
-                    "description": "当前配置音色",
-                    "category": "custom",
-                }
-            ]
+        if config["provider"] == "local":
+            values = local_tts.list_voices(store)
+        else:
+            values = store.get("voices")
+            if not values and config.get("voice"):
+                values = [
+                    {
+                        "id": config["voice"],
+                        "name": config["voice"],
+                        "description": "当前配置音色",
+                        "category": "custom",
+                    }
+                ]
         return {
             "voices": values,
             "emotion": config["provider"] == "minimax",
@@ -417,9 +475,53 @@ def create_app(data_dir=None, start_worker=True):
 
     @app.post("/api/voices/refresh")
     def refresh_voices():
-        values = providers.list_voices(store.get("tts"))
+        config = store.get("tts")
+        if config["provider"] == "local":
+            # Local voices are computed live from the catalog and clone
+            # registry; there is nothing to fetch or persist.
+            return {"count": len(local_tts.list_voices(store))}
+        values = providers.list_voices(config)
         store.set("voices", values)
         return {"count": len(values)}
+
+    @app.get("/api/local/models")
+    def local_models():
+        return {
+            "models": local_tts.models_status(store),
+            "dependency": local_tts.dependency_error(),
+        }
+
+    @app.post("/api/local/models/{model_id}/download")
+    def download_local_model(model_id: str):
+        return local_tts.start_download(store, model_id)
+
+    @app.post("/api/local/models/{model_id}/abort")
+    def abort_local_model(model_id: str):
+        local_tts.abort_download(model_id)
+        return {"ok": True}
+
+    @app.delete("/api/local/models/{model_id}")
+    def delete_local_model(model_id: str):
+        local_tts.delete_model(store, model_id)
+        return {"ok": True}
+
+    @app.post("/api/voices/clone")
+    def create_clone(
+        name: str = Form(...),
+        text: str = Form(...),
+        file: UploadFile = None,
+    ):
+        if file is None:
+            raise ValueError("请选择参考音频文件")
+        data = file.file.read(20 * 1024 * 1024 + 1)
+        if len(data) > 20 * 1024 * 1024:
+            raise HTTPException(413, "参考音频不能超过 20MB")
+        return local_tts.register_clone(store, name, text, data, file.filename or "")
+
+    @app.delete("/api/voices/clone/{ident}")
+    def remove_clone(ident: str):
+        local_tts.delete_clone(store, ident)
+        return {"ok": True}
 
     @app.post("/api/voices/favorite")
     def favorite(body: dict):
@@ -530,7 +632,7 @@ def create_app(data_dir=None, start_worker=True):
         if changed_voice and voice:
             # Same whitelist rule as cast bindings, checked only when the voice
             # actually changes so editing title/style never needs a re-sync.
-            allowed = {v["id"] for v in store.get("voices")}
+            allowed = {v["id"] for v in voice_catalog(store.get("tts"))}
             configured = store.get("tts").get("voice")
             if configured:
                 allowed.add(configured)
@@ -639,7 +741,7 @@ def create_app(data_dir=None, start_worker=True):
         if not speaker or speaker == "旁白":
             raise ValueError("旁白使用书籍默认音色，请在下方调整")
         if voice:
-            allowed = {v["id"] for v in store.get("voices")}
+            allowed = {v["id"] for v in voice_catalog(store.get("tts"))}
             if voice not in allowed:
                 raise ValueError("未知音色，请从音色列表中选择")
         # A voice change makes existing audio VOICE-stale (it still sounds
@@ -684,6 +786,37 @@ def create_app(data_dir=None, start_worker=True):
                     (json.dumps(merged), ch["id"]),
                 )
         return {"ok": True, "speaker": speaker, "voice": voice, "affected": affected}
+
+    @app.post("/api/books/{ident}/reset-voices")
+    def reset_voices(ident: str):
+        """Engine-switch recovery: drop every voice reference of one book —
+        the narrator voice, all cast rows, and every per-segment voice — so
+        characters can be rebound on the current engine. Chapters bump like a
+        narrator-voice change (revision +1, suggestions cleared, stale_segments
+        filled for chapters with audio) and cast_version marks existing audio
+        音色待更新 while it stays playable. Never touches text or the
+        pronunciation dictionary."""
+        book(ident)
+        with store.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            require_idle(db, ident)
+            db.execute(
+                "UPDATE books SET voice='',cast_version=cast_version+1 WHERE id=?", (ident,)
+            )
+            db.execute("DELETE FROM cast WHERE book_id=?", (ident,))
+            for ch in db.execute(
+                "SELECT id,segments,(active_audio IS NOT NULL) has_audio FROM chapters WHERE book_id=?",
+                (ident,),
+            ).fetchall():
+                segs = json.loads(ch["segments"])
+                stripped = [{**s, "voice": ""} for s in segs]
+                stale = json.dumps(list(range(len(stripped)))) if ch["has_audio"] and stripped else None
+                db.execute(
+                    "UPDATE chapters SET segments=?,revision=revision+1,suggestion=NULL,"
+                    "stale_segments=? WHERE id=?",
+                    (json.dumps(stripped, ensure_ascii=False), stale, ch["id"]),
+                )
+        return {"ok": True}
 
     @app.get("/api/books/{ident}/dict")
     def get_dict(ident: str):
@@ -1122,7 +1255,7 @@ def create_app(data_dir=None, start_worker=True):
         if not body.text.strip() or len(body.text) > 300:
             raise ValueError("试听文本需要在 1–300 字之间")
         config = store.get("tts")
-        if not config["base_url"] or not config["model"]:
+        if config["provider"] != "local" and (not config["base_url"] or not config["model"]):
             raise ValueError("请先配置语音服务和模型")
         segment = body.model_dump()
         # The audition must sound like the final render: apply the book's
@@ -1136,7 +1269,7 @@ def create_app(data_dir=None, start_worker=True):
     def generate(ident: str, body: Selection):
         row = book(ident)
         config = store.get("tts")
-        if not config.get("base_url") or not config.get("model"):
+        if config["provider"] != "local" and (not config.get("base_url") or not config.get("model")):
             raise ValueError("请先配置语音服务")
         if row["voice"]:
             config["voice"] = row["voice"]
@@ -1258,7 +1391,7 @@ def create_app(data_dir=None, start_worker=True):
         version — without touching any other segment."""
         row = chapter(ident)
         config = store.get("tts")
-        if not config.get("base_url") or not config.get("model"):
+        if config["provider"] != "local" and (not config.get("base_url") or not config.get("model")):
             raise ValueError("请先配置语音服务")
         book_row = book(row["book_id"])
         if book_row["voice"]:

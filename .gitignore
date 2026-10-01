@@ -18,3 +18,6 @@ release-artifacts/
 
 app/_patch_log.txt
 output/mediaget-panda.md
+
+# 本地 TTS 模型冒烟目录（340MB+ 模型文件，不入库）
+output/local-smoke/

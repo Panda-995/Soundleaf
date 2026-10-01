@@ -22,6 +22,8 @@ DEFAULTS = {
     "ai": {"base_url": "", "model": "", "api_key": "", "allow_local": False, "image_model": ""},
     "voices": [],
     "favorites": [],
+    "clones": [],
+    "tts_cloud": {},
     "paused": False,
 }
 

@@ -167,3 +167,35 @@ def test_csp_header_on_responses(client):
     policy = result.headers.get("Content-Security-Policy", "")
     assert "default-src 'self'" in policy
     assert "frame-ancestors 'none'" in policy
+
+
+def test_cache_eviction_respects_cap_and_fresh_entries(client, monkeypatch):
+    """The synthesis cache is LRU-evicted under a GB cap; entries written
+    within the last cleanup interval are never touched, and 0 disables."""
+    import os
+    import time
+
+    store = client.app.state.store
+    cache = store.file("cache")
+
+    def make(name, size, age):
+        path = cache / name
+        path.write_bytes(b"\x00" * size)
+        os.utime(path, (time.time() - age, time.time() - age))
+
+    make("old-a.wav", 1500, 7 * 86400)
+    make("old-b.wav", 1500, 2 * 86400)
+    make("fresh.wav", 400, 60)
+    worker = client.app.state.worker
+    monkeypatch.setenv("SOUNDPAGE_CACHE_GB", "0.0000015")  # ~1.6 KB budget
+    worker.cleanup()
+    worker.evict_cache()
+    assert not (cache / "old-a.wav").exists()
+    assert not (cache / "old-b.wav").exists()
+    assert (cache / "fresh.wav").exists()
+    # Disabling the cap leaves everything alone.
+    make("kept.wav", 2000, 7 * 86400)
+    monkeypatch.setenv("SOUNDPAGE_CACHE_GB", "0")
+    worker.cleanup()
+    worker.evict_cache()
+    assert (cache / "kept.wav").exists() and (cache / "fresh.wav").exists()

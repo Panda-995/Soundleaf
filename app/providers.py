@@ -11,6 +11,7 @@ from urllib.parse import quote
 
 import httpx
 
+from app import local_tts
 from app.security import validate_url
 
 # Extended emotion styles. MiniMax's API only accepts a small emotion enum,
@@ -171,7 +172,7 @@ def list_voices(config):
     ]
 
 
-def synthesize(config, segment):
+def synthesize(config, segment, store=None):
     voice = segment.get("voice") or config["voice"]
     text = segment["text"]
     emotion, style = _resolve_style(segment)
@@ -180,6 +181,13 @@ def synthesize(config, segment):
     speed = max(0.5, min(1.6, segment["speed"] * speed_mult))
     if emotion == "stutter":
         text = _stutterize(text)
+    if config["provider"] == "local":
+        # Local engines expose no emotion parameter; like the OpenAI-compatible
+        # branch, styles keep only their speed tendency (no pitch/volume shifts,
+        # and whisper's volume cue is MiniMax-only).
+        if store is None:
+            raise ValueError("本地引擎缺少数据目录，无法合成")
+        return local_tts.synthesize(store, voice, text, speed)
     if config["provider"] == "minimax":
         setting = {"voice_id": voice, "speed": round(speed, 2), "vol": vol}
         if style[0] != "neutral":
@@ -215,6 +223,17 @@ def synthesize(config, segment):
         audio=True,
         retries=2,
     )
+
+
+def local_identity(config, segment, store=None):
+    """Extra cache-identity inputs for the local engine: which engine files
+    would serve this segment's voices (built-in voice, clone, or the default).
+    Cloud providers return {} so their cache identity stays byte-identical."""
+    if config.get("provider") != "local":
+        return {}
+    if store is None:
+        return {"local_engines": ["unavailable"]}
+    return local_tts.signature(store, (segment.get("voice") or "", config.get("voice") or ""))
 
 
 def _extract_text(content):

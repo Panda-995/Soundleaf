@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import re
 import threading
 import time
@@ -305,6 +306,46 @@ class Worker:
             self.store.execute("DELETE FROM audio WHERE id=?", (row["id"],))
         self.store.execute("DELETE FROM sessions WHERE expires<?", (now,))
 
+    # Synthesis cache entries written after this point are never evicted, so
+    # a book finished minutes ago stays regenerable without re-billing.
+    CACHE_FRESH_SECONDS = 6 * 3600
+
+    def evict_cache(self):
+        """Size-capped eviction for the synthesis cache (data/cache/*.wav).
+
+        Entries are digest-addressed and pure memo: deleting one never breaks
+        anything, it only costs a re-synthesis (and re-billing on cloud
+        engines). Oldest-mtime-first under a GB cap; runs on the worker
+        thread between jobs, so a cache file is never mid-use here. The cap
+        comes from SOUNDPAGE_CACHE_GB (default 2, 0 disables)."""
+        try:
+            limit = float(os.environ.get("SOUNDPAGE_CACHE_GB", "2"))
+        except ValueError:
+            limit = 2.0
+        if limit <= 0:
+            return
+        budget = limit * 1024 ** 3
+        entries, total = [], 0
+        for path in self.store.file("cache").glob("*.wav"):
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            entries.append((stat.st_mtime, stat.st_size, path))
+            total += stat.st_size
+        if total <= budget:
+            return
+        for mtime, size, path in sorted(entries):
+            if total <= budget:
+                break
+            if time.time() - mtime < self.CACHE_FRESH_SECONDS:
+                continue
+            try:
+                path.unlink()
+                total -= size
+            except OSError:
+                continue
+
     def loop(self):
         while not self.stop.is_set():
             self.heartbeat = time.time()
@@ -312,6 +353,7 @@ class Worker:
                 self.next_cleanup = time.time() + self.CLEANUP_INTERVAL
                 try:
                     self.cleanup()
+                    self.evict_cache()
                 except Exception:  # noqa: BLE001 -- cleanup is best-effort
                     import traceback
 
@@ -358,6 +400,10 @@ class Worker:
         quote/narration units) and return the wav path. Reused when the
         identity (text/voice/emotion/speed) is unchanged."""
         options = {k: v for k, v in config.items() if k != "api_key"}
+        # Local engines add which engine files serve this segment (model
+        # variant switches must not reuse cached audio); cloud providers
+        # contribute nothing and keep their identity byte-identical.
+        options.update(providers.local_identity(config, segment, self.store))
         # Pause is added during assembly, so it need not invalidate synthesis.
         identity = {k: v for k, v in segment.items() if k not in ("pause", "speaker")}
         # v2: emotion styles no longer shift pitch/volume — cached audio from
@@ -369,16 +415,19 @@ class Worker:
         if cached.exists():
             return cached
         if job_id:
-            self.update(job_id, stage="请求语音服务")
+            self.update(
+                job_id,
+                stage="本地合成中" if config.get("provider") == "local" else "请求语音服务",
+            )
         units = synthesis_units(segment, config.get("voice", ""))
         try:
             if len(units) == 1:
-                audio.atomic_audio(providers.synthesize(config, units[0]), cached)
+                audio.atomic_audio(providers.synthesize(config, units[0], self.store), cached)
             else:
                 parts = []
                 for unit in units:
                     temporary = cached.with_name(f"{cached.stem}.u{len(parts)}.tmp.wav")
-                    audio.atomic_audio(providers.synthesize(config, unit), temporary)
+                    audio.atomic_audio(providers.synthesize(config, unit, self.store), temporary)
                     parts.append(temporary)
                 # A short breath between the quote and the narration tail.
                 audio.concatenate(parts, [200] * len(parts), cached)

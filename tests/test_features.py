@@ -66,7 +66,7 @@ def test_dict_roundtrip_and_validation(client):
 
 
 def test_dict_applies_to_generation_and_marks_affected_chapters(client, monkeypatch, wav_bytes):
-    monkeypatch.setattr(providers, "synthesize", lambda config, s: wav_bytes)
+    monkeypatch.setattr(providers, "synthesize", lambda config, s, store=None: wav_bytes)
     b = import_book(client, text="第一章 灯塔\n海边的灯塔亮了。\n第二章 来信\n他打开信封。")
     ids = [c["id"] for c in b["chapters"]]
     # Generate both chapters first, so the dictionary has audio to mark stale.
@@ -82,7 +82,7 @@ def test_dict_applies_to_generation_and_marks_affected_chapters(client, monkeypa
     assert chapters[ids[0]]["revision"] == chapters[ids[1]]["revision"] == 1
 
     calls = []
-    monkeypatch.setattr(providers, "synthesize", lambda config, s: calls.append(s["text"]) or wav_bytes)
+    monkeypatch.setattr(providers, "synthesize", lambda config, s, store=None: calls.append(s["text"]) or wav_bytes)
     regen_ids = client.post(
         f"/api/books/{b['id']}/generate", json={"chapter_ids": ids}
     ).json()["ids"]
@@ -110,7 +110,7 @@ def test_preview_applies_dictionary(client):
 
 
 def test_m4b_export_single_file_with_chapter_navigation(client, monkeypatch, wav_bytes):
-    monkeypatch.setattr(providers, "synthesize", lambda config, s: wav_bytes)
+    monkeypatch.setattr(providers, "synthesize", lambda config, s, store=None: wav_bytes)
     b = import_book(client)
     ids = [c["id"] for c in b["chapters"]]
     for ident in client.post(f"/api/books/{b['id']}/generate", json={"chapter_ids": ids}).json()["ids"]:
@@ -144,7 +144,7 @@ def test_m4b_export_single_file_with_chapter_navigation(client, monkeypatch, wav
 
 
 def test_m4b_rejects_stale_audio_like_other_formats(client, monkeypatch, wav_bytes):
-    monkeypatch.setattr(providers, "synthesize", lambda config, s: wav_bytes)
+    monkeypatch.setattr(providers, "synthesize", lambda config, s, store=None: wav_bytes)
     b = import_book(client)
     cid = b["chapters"][0]["id"]
     run_job(

@@ -18,6 +18,10 @@ pycparser==3.0
 pydantic==2.13.5
 pydantic-core==2.46.5
 python-multipart==0.0.32
+# Offline local TTS engine (sherpa-onnx bundles its own onnxruntime; both
+# publish manylinux2014 x86_64 + aarch64 wheels, so NAS builds stay native).
+sherpa-onnx==1.13.8
+sherpa-onnx-core==1.13.8
 soupsieve==2.9.2
 starlette==1.6.0
 typing-extensions==4.16.0
