@@ -48,7 +48,23 @@ export type BookMeta = {
   palette: string[];
   mood: string;
 };
-export type Voice = { id: string; name: string; description: string };
+export type Voice = {
+  id: string;
+  name: string;
+  description: string;
+  category?: string;
+};
+export type LocalModel = {
+  id: string;
+  name: string;
+  description: string;
+  size: number;
+  engine: string;
+  state: "ready" | "missing" | "downloading" | "error";
+  received?: number;
+  total?: number;
+  error?: string;
+};
 export type DictEntry = { word: string; replacement: string };
 export type AudioMeta = {
   id: string;
@@ -130,6 +146,9 @@ export type ProviderConfig = {
 export type SettingsShape = {
   tts: ProviderConfig;
   ai: ProviderConfig;
+  /** Snapshot of the last cloud TTS connection, kept so switching to the
+   * offline engine and back restores it without retyping. */
+  tts_cloud?: ProviderConfig | null;
   notify: { enabled: boolean; kind: string; url: string } | null;
   paused: boolean;
   favorites: string[];

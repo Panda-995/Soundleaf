@@ -5,6 +5,8 @@ import {
   Search,
   RotateCcw,
   Heart,
+  Trash2,
+  UserRoundPlus,
 } from "lucide-react";
 import { Badge, Button, Empty, Heading } from "../components/ui";
 import { baseSegment } from "../constants";
@@ -21,6 +23,11 @@ export function Voices(
     [text, setText] = useState(
       t("暮色落进海面的时候，他收到了一封没有署名的信。"),
     );
+  // Clone registration is only offered with the offline engine selected.
+  const local = p.settings?.tts.provider === "local";
+  const [cloneName, setCloneName] = useState(""),
+    [cloneText, setCloneText] = useState(""),
+    [cloneFile, setCloneFile] = useState<File | null>(null);
   const v = p.voices.find((v) => v.id === selected) || p.voices[0];
   const filtered = p.voices.filter(
     (v) =>
@@ -115,6 +122,21 @@ export function Voices(
               >
                 <Play size={17} />
               </Button>
+              {voice.category === "clone" && (
+                <Button
+                  title={t("删除克隆音色")}
+                  disabled={p.busy}
+                  onClick={() =>
+                    p.run(async () => {
+                      await api("/voices/clone/" + voice.id.slice(2), "DELETE");
+                      p.reload();
+                      p.notify(t("克隆音色已删除"));
+                    })
+                  }
+                >
+                  <Trash2 size={16} />
+                </Button>
+              )}
             </div>
           ))}
           {!filtered.length && (
@@ -169,6 +191,69 @@ export function Voices(
           <small>{t("短试听会使用当前语音服务并可能计费。")}</small>
         </aside>
       </div>
+      {local && (
+        <section className="panel clone-panel">
+          <UserRoundPlus size={24} className="accent" />
+          <h3>{t("克隆音色")}</h3>
+          <p className="muted">
+            {t("上传一段 1–30 秒的清晰人声与它的原文，创建属于这本书的声音；需先在设置中下载 ZipVoice 模型。支持 wav / mp3 / m4a。")}
+          </p>
+          <form
+            className="clone-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!cloneFile) return;
+              const data = new FormData();
+              data.append("name", cloneName);
+              data.append("text", cloneText);
+              data.append("file", cloneFile);
+              p.run(async () => {
+                await api("/voices/clone", "POST", data);
+                setCloneName("");
+                setCloneText("");
+                setCloneFile(null);
+                p.reload();
+                p.notify(t("克隆音色已创建，可在上方列表试听并绑定角色。"));
+              });
+            }}
+          >
+            <label>
+              {t("克隆名称")}
+              <input
+                required
+                maxLength={60}
+                value={cloneName}
+                onChange={(e) => setCloneName(e.target.value)}
+                placeholder={t("如：旁白 · 沉稳男声")}
+              />
+            </label>
+            <label>
+              {t("参考原文（须与音频逐字一致）")}
+              <textarea
+                required
+                maxLength={300}
+                rows={2}
+                value={cloneText}
+                onChange={(e) => setCloneText(e.target.value)}
+                placeholder={t("把参考音频里说的话原样写下来")}
+              />
+            </label>
+            <label>
+              {t("参考音频")}
+              <input
+                type="file"
+                required
+                accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg"
+                onChange={(e) => setCloneFile(e.target.files?.[0] || null)}
+              />
+            </label>
+            <Button type="submit" primary disabled={p.busy || !cloneFile}>
+              <UserRoundPlus size={16} />
+              {t("创建克隆音色")}
+            </Button>
+          </form>
+        </section>
+      )}
     </>
   );
 }

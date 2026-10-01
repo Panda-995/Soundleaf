@@ -1,17 +1,99 @@
-import { useEffect, useState } from "react";
-import { ArrowUpRight, CircleAlert, Folder, MicVocal, Save } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { ArrowUpRight, CircleAlert, Download, Folder, MicVocal, Save, Trash2, X } from "lucide-react";
 import { Select } from "../components/Select";
 import { PasswordForm } from "../components/PasswordChange";
 import { About } from "../components/About";
 import { Button, Heading } from "../components/ui";
-import { api, type Common } from "../api";
+import { api, type Common, type LocalModel } from "../api";
 import { t } from "../i18n";
+
+function fmtSize(bytes: number) {
+  return bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${Math.round(bytes / 1024 ** 2)} MB`;
+}
+
+/** Model manager for the offline engine: lists the downloadable catalog and
+ * polls while a download is running (the backend reports live progress). */
+function LocalModels({ run }: { run: Common["run"] }) {
+  const [models, setModels] = useState<LocalModel[]>([]);
+  const [dependency, setDependency] = useState<string | null>(null);
+  const load = useCallback(
+    () =>
+      api<{ models: LocalModel[]; dependency: string | null }>("/local/models").then((r) => {
+        setModels(r.models);
+        setDependency(r.dependency);
+      }),
+    [],
+  );
+  useEffect(() => {
+    // Poll failures stay silent (last state remains, next tick self-heals);
+    // user-initiated actions go through run() and surface errors as toasts.
+    load().catch(() => {});
+  }, [load]);
+  useEffect(() => {
+    if (!models.some((m) => m.state === "downloading")) return;
+    const id = window.setInterval(() => load().catch(() => {}), 1500);
+    return () => window.clearInterval(id);
+  }, [models, load]);
+  const stateLabel = (m: LocalModel) => {
+    if (m.state === "ready") return t("已就绪");
+    if (m.state === "downloading" && m.total) {
+      return `${t("下载中")} ${Math.min(100, Math.round(((m.received || 0) / m.total) * 100))}%`;
+    }
+    if (m.state === "error") return `${t("下载失败")}：${m.error || ""}`;
+    return fmtSize(m.size);
+  };
+  return (
+    <div className="local-models">
+      <h3>{t("本地模型")}</h3>
+      <p className="muted">
+        {t("模型下载到数据目录，一次下载永久可用；合成全程在本机 CPU 完成，文本不会发往云端。")}
+      </p>
+      {dependency && (
+        <p className="notice">
+          {t("本机缺少本地引擎依赖（sherpa-onnx）；官方 Docker 镜像已内置，自建环境需先安装。")}
+        </p>
+      )}
+      {models.map((m) => (
+        <div className={"model-row " + m.state} key={m.id}>
+          <div className="model-info">
+            <h4>{m.name}</h4>
+            <p>{m.description}</p>
+            <p className="muted">{stateLabel(m)}</p>
+            {m.state === "downloading" && (
+              <progress value={m.received || 0} max={m.total || m.size} aria-label={t("下载进度")} />
+            )}
+          </div>
+          <div className="model-actions">
+            {m.state !== "ready" && m.state !== "downloading" && (
+              <Button disabled={!!dependency} onClick={() => run(() => api(`/local/models/${m.id}/download`).then(load))}>
+                <Download size={16} />
+                {t("下载")}
+              </Button>
+            )}
+            {m.state === "downloading" && (
+              <Button onClick={() => run(() => api(`/local/models/${m.id}/abort`).then(load))}>
+                <X size={16} />
+                {t("取消下载")}
+              </Button>
+            )}
+            {m.state === "ready" && (
+              <Button title={t("删除模型文件")} onClick={() => run(() => api(`/local/models/${m.id}`, "DELETE").then(load))}>
+                <Trash2 size={16} />
+              </Button>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function SettingsPage(p: Common) {
   // main.tsx only mounts this page once settings have loaded.
   const settings = p.settings!;
   const [tab, setTab] = useState("tts");
   const [draft, setDraft] = useState<any>({ ...settings.tts, api_key: "" });
+  const local = tab === "tts" && draft.provider === "local";
   const [result, setResult] = useState("");
   useEffect(() => {
     if (["tts", "ai"].includes(tab)) setDraft({ ...settings[tab as "tts" | "ai"], api_key: "" });
@@ -21,6 +103,28 @@ export function SettingsPage(p: Common) {
   useEffect(() => setResult(""), [tab]);
   const change = (key: string, value: string | boolean) =>
     setDraft({ ...draft, [key]: value });
+  // Switching providers: to the local engine presets a valid built-in voice
+  // so the saved configuration is usable immediately (the backend normalizes
+  // this too); back to a cloud service restores the remembered connection so
+  // nothing has to be retyped.
+  const changeProvider = (value: string) =>
+    setDraft((d: any) => {
+      if (value === "local") {
+        return { ...d, provider: value, ...(!/^[kc]:/.test(d.voice || "") ? { voice: "k:3" } : {}) };
+      }
+      if (d.provider === "local" && p.settings?.tts_cloud?.base_url) {
+        const cloud = p.settings.tts_cloud;
+        return {
+          ...d,
+          provider: value,
+          base_url: cloud.base_url,
+          model: cloud.model || d.model,
+          voice: cloud.voice || d.voice,
+          allow_local: !!cloud.allow_local,
+        };
+      }
+      return { ...d, provider: value };
+    });
   return (
     <>
       <Heading title={t("设置")} sub={t("连接声音，管理你的工作室。")} />
@@ -169,7 +273,9 @@ export function SettingsPage(p: Common) {
               <h2>{tab === "tts" ? t("语音合成服务") : t("AI 内容分析")}</h2>
               <p>
                 {tab === "tts"
-                  ? t("声音由你选择的服务生成，NAS 无需 GPU。")
+                  ? local
+                    ? t("声音在本机离线生成，无需联网与 API 密钥。")
+                    : t("声音由你选择的服务生成，NAS 无需 GPU。")
                   : t("AI 提出朗读节奏建议，原文始终保留。")}
               </p>
               {tab === "tts" && (
@@ -178,46 +284,52 @@ export function SettingsPage(p: Common) {
                   <Select
                     aria-label={t("服务类型")}
                     value={draft.provider}
-                    onChange={(e) => change("provider", e.target.value)}
+                    onChange={(e) => changeProvider(e.target.value)}
                   >
                     <option value="minimax">MiniMax</option>
                     <option value="compatible">{t("兼容 /audio/speech 接口")}</option>
+                    <option value="local">{t("本地离线引擎（无需联网）")}</option>
                   </Select>
                 </label>
               )}
-              <label>
-                {t("API 基础地址")}
-                <input
-                  type="url"
-                  required
-                  value={draft.base_url}
-                  onChange={(e) => change("base_url", e.target.value)}
-                  placeholder={t("https://服务地址/v1")}
-                />
-              </label>
-              <label>
-                {t("API 密钥")}
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  value={draft.api_key}
-                  onChange={(e) => change("api_key", e.target.value)}
-                  placeholder={
-                    draft.has_key
-                      ? t("已保存，留空保持不变")
-                      : t("输入服务密钥；本地服务可留空")
-                  }
-                />
-              </label>
-              <label>
-                {t("模型名称")}
-                <input
-                  required
-                  value={draft.model}
-                  onChange={(e) => change("model", e.target.value)}
-                  placeholder={tab === "tts" ? "speech-2.6-hd" : t("服务支持的模型名称")}
-                />
-              </label>
+              {local && <LocalModels run={p.run} />}
+              {!local && (
+                <>
+                  <label>
+                    {t("API 基础地址")}
+                    <input
+                      type="url"
+                      required
+                      value={draft.base_url}
+                      onChange={(e) => change("base_url", e.target.value)}
+                      placeholder={t("https://服务地址/v1")}
+                    />
+                  </label>
+                  <label>
+                    {t("API 密钥")}
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={draft.api_key}
+                      onChange={(e) => change("api_key", e.target.value)}
+                      placeholder={
+                        draft.has_key
+                          ? t("已保存，留空保持不变")
+                          : t("输入服务密钥；本地服务可留空")
+                      }
+                    />
+                  </label>
+                  <label>
+                    {t("模型名称")}
+                    <input
+                      required
+                      value={draft.model}
+                      onChange={(e) => change("model", e.target.value)}
+                      placeholder={tab === "tts" ? "speech-2.6-hd" : t("服务支持的模型名称")}
+                    />
+                  </label>
+                </>
+              )}
               {tab === "ai" && (
                 <label>
                   {t("生图模型（可选，用于 AI 书封）")}
@@ -228,7 +340,7 @@ export function SettingsPage(p: Common) {
                   />
                 </label>
               )}
-              {tab === "tts" && (
+              {tab === "tts" && !local && (
                 <label>
                   {t("默认音色 ID")}
                   <input
@@ -239,14 +351,16 @@ export function SettingsPage(p: Common) {
                   />
                 </label>
               )}
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={draft.allow_local}
-                  onChange={(e) => change("allow_local", e.target.checked)}
-                />
-                {t("允许局域网或本地 HTTP 服务")}
-              </label>
+              {tab === "ai" || !local ? (
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={draft.allow_local}
+                    onChange={(e) => change("allow_local", e.target.checked)}
+                  />
+                  {t("允许局域网或本地 HTTP 服务")}
+                </label>
+              ) : null}
               <div className="actions">
                 <Button type="submit" primary disabled={p.busy}>
                   <Save size={16} />
@@ -273,7 +387,9 @@ export function SettingsPage(p: Common) {
                 </p>
               )}
               <div className="notice">
-                {t("云端分析或合成会将所选文本发送到对应服务商。兼容语音接口仅支持音色和语速，情绪调整需使用支持该能力的引擎。")}
+                {local
+                  ? t("本地引擎暂不支持情绪调节（情绪会体现为轻微语速变化）；克隆音色在音色库页创建。")
+                  : t("云端分析或合成会将所选文本发送到对应服务商。兼容语音接口仅支持音色和语速，情绪调整需使用支持该能力的引擎。")}
               </div>
             </form>
           )}

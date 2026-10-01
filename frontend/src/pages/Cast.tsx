@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AudioLines, RefreshCw } from "lucide-react";
+import { AudioLines, Eraser, RefreshCw, TriangleAlert } from "lucide-react";
 import { Select } from "../components/Select";
 import { Button, Empty, Heading } from "../components/ui";
 import { api, type Common } from "../api";
@@ -80,12 +80,54 @@ export function CastPage(p: Common) {
       );
     });
   const narratorVoice = data.narrator_voice || p.settings?.tts?.voice || "";
+  // Voice bindings that the current engine's catalogue cannot resolve — they
+  // appear after switching speech services and would fail generation with
+  // 未知音色. Offer a one-click reset instead of a dead end.
+  const staleBindings = [
+    ...new Set(
+      [data.narrator_voice, ...data.cast.map((m) => m.voice)].filter(
+        (v) => v && !p.voices.some((x) => x.id === v),
+      ),
+    ),
+  ];
   return (
     <>
       <Heading
         title={t("角色库")}
         sub={t("一本书的声音档案。绑定立即生效，重生成相关章节后听到新声音。")}
       />
+      {staleBindings.length > 0 && (
+        <section className="panel cast-stale" role="alert">
+          <TriangleAlert size={19} />
+          <div>
+            <strong>
+              {tf("{count} 个音色绑定来自其他语音服务，当前引擎无法合成。", {
+                count: staleBindings.length,
+              })}
+            </strong>
+            <p>
+              {t(
+                "可以逐个重新绑定，或一键清除全部绑定后从默认音色开始；已生成音频保持可播放并标记待更新。",
+              )}
+            </p>
+          </div>
+          <Button
+            disabled={p.busy}
+            onClick={() =>
+              p.run(async () => {
+                await api(`/books/${book.id}/reset-voices`, "POST");
+                const d = await api<CastData>(`/books/${book.id}/cast`);
+                setData(d);
+                p.reload();
+                p.notify(t("已清除全部音色绑定，请为角色重新选择音色。"));
+              })
+            }
+          >
+            <Eraser size={15} />
+            {t("清除全部音色绑定")}
+          </Button>
+        </section>
+      )}
       {data.cast.length ? (
         <div className="cast-list">
           <section className="panel cast-row item-in">

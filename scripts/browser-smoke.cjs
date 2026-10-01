@@ -211,6 +211,39 @@ const novel = `第一章 雾中的信\n暮色落进海面的时候，林舟收�
   await page.screenshot({path:path.join(out,'13-library-after-delete.png'),fullPage:true});
   if((await (await page.request.get(root+'/api/books')).json()).length) throw Error('Book not deleted');
   checks.push('Delete book removes it from library and survives reload without stale selection');
+  // Offline local engine: the model manager renders, saving normalizes the
+  // config (cloud fields blanked, built-in voice preset), and the voices
+  // page serves the built-in catalogue live plus the clone registration form.
+  await page.goto(root + '/#settings');
+  await page.getByLabel('服务类型').click();
+  await page.getByRole('option', { name: '本地离线引擎（无需联网）' }).click();
+  await page.getByText('本地模型', { exact: true }).waitFor();
+  await page.getByText('Kokoro v1.1 中英 · int8', { exact: true }).waitFor();
+  const localSaved = page.waitForResponse(r => r.url().endsWith('/api/settings/tts') && r.request().method() === 'PUT');
+  await page.getByRole('button', { name: '保存设置', exact: true }).click();
+  if ((await localSaved).status() !== 200) throw Error('Local settings save');
+  const ttsConfig = await (await page.request.get(root + '/api/settings')).json();
+  if (ttsConfig.tts.provider !== 'local' || ttsConfig.tts.voice !== 'k:3' || ttsConfig.tts.base_url !== '') {
+    throw Error('Local config not normalized: ' + JSON.stringify(ttsConfig.tts));
+  }
+  await page.screenshot({ path: path.join(out, '14-settings-local.png'), fullPage: true });
+  await page.goto(root + '/#voices');
+  await page.getByText('克隆音色', { exact: true }).waitFor();
+  await page.getByText('中文女声 1', { exact: true }).waitFor();
+  await page.screenshot({ path: path.join(out, '15-voices-local.png'), fullPage: true });
+  checks.push('Local engine: model manager, config normalization and live voice catalogue');
+  // Restore a cloud provider so later checks (ui-audit runs right after on
+  // the same fixture) find the settings form in its cloud shape again.
+  await page.goto(root + '/#settings');
+  await page.getByLabel('服务类型').click();
+  await page.getByRole('option', { name: 'MiniMax', exact: true }).click();
+  await page.getByLabel('API 基础地址').fill('http://127.0.0.1:18781/v1');
+  await page.getByLabel('模型名称').fill('fixture-model');
+  await page.getByLabel('默认音色 ID').fill('fixture-calm');
+  await page.getByLabel('允许局域网或本地 HTTP 服务').check();
+  const cloudSaved = page.waitForResponse(r => r.url().endsWith('/api/settings/tts') && r.request().method() === 'PUT');
+  await page.getByRole('button', { name: '保存设置', exact: true }).click();
+  if ((await cloudSaved).status() !== 200) throw Error('Cloud settings restore');
   const report = { checks, errors, layouts, note: 'Local HTTP fixture returns synthetic WAV data, not real speech. Screenshots use isolated test data.' };
   fs.writeFileSync('output/runtime/browser-verification.json', JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report));

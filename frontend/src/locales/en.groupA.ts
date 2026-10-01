@@ -154,6 +154,21 @@ const dict: Record<string, string> = {
   "创建导出包": "Create export package",
   "导出会固定当前音频版本，后续修改不会改变这次包内容。":
     "Exporting locks in the current audio versions; later edits will not change this package.",
+
+  // Voices.tsx — voice clones (offline engine)
+  "克隆音色": "Voice clones",
+  "上传一段 1–30 秒的清晰人声与它的原文，创建属于这本书的声音；需先在设置中下载 ZipVoice 模型。支持 wav / mp3 / m4a。":
+    "Upload 1–30 seconds of clean speech plus its transcript to create a voice of your own; download the ZipVoice model in Settings first. wav / mp3 / m4a supported.",
+  "克隆名称": "Clone name",
+  "参考原文（须与音频逐字一致）": "Reference transcript (must match the audio word for word)",
+  "把参考音频里说的话原样写下来": "Write down exactly what is said in the reference audio",
+  "参考音频": "Reference audio",
+  "创建克隆音色": "Create voice clone",
+  "克隆音色已创建，可在上方列表试听并绑定角色。":
+    "Voice clone created — audition it in the list above and bind it to characters.",
+  "删除克隆音色": "Delete voice clone",
+  "克隆音色已删除": "Voice clone deleted",
+  "如：旁白 · 沉稳男声": "e.g. Narrator · calm male",
 };
 
 export default dict;

@@ -4197,3 +4197,108 @@ dialog::backdrop {
 .about-foot p {
   margin: 0;
 }
+
+/* --- 本地引擎：模型管理与克隆音色 --- */
+.local-models {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin-bottom: 24px;
+}
+.local-models h3 {
+  font-size: 14px;
+  margin: 0 0 6px;
+  color: var(--lime-ink);
+}
+.local-models > .muted {
+  font-size: 12px;
+  margin: 0;
+}
+.local-models .notice {
+  margin: 14px 0 0;
+  font-size: 12.5px;
+}
+.model-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 0 0;
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.model-info {
+  min-width: 0;
+}
+.model-info h4 {
+  margin: 0 0 4px;
+  font-size: 13.5px;
+}
+.model-info p {
+  margin: 2px 0;
+  font-size: 12px;
+}
+.model-row.ready .model-info .muted {
+  color: var(--mint);
+}
+.model-row.error .model-info .muted {
+  color: var(--red);
+}
+.model-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.local-models progress {
+  width: 100%;
+  height: 6px;
+  margin-top: 8px;
+  accent-color: var(--lime-ink);
+}
+.clone-panel {
+  margin-top: 26px;
+  padding: 26px 30px;
+}
+.clone-panel h3 {
+  margin: 12px 0 6px;
+  color: var(--lime-ink);
+}
+.clone-panel > .muted {
+  font-size: 12.5px;
+}
+.clone-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  max-width: 560px;
+}
+.clone-form .button {
+  justify-self: start;
+}
+
+/* --- 角色库：跨引擎音色绑定告警 --- */
+.cast-stale {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px 20px;
+  margin-bottom: 18px;
+  border: 1px solid var(--warn);
+}
+.cast-stale > svg {
+  color: var(--warn);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.cast-stale strong {
+  font-size: 13.5px;
+}
+.cast-stale p {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin: 6px 0 0;
+}
+.cast-stale .button {
+  flex-shrink: 0;
+  margin-left: auto;
+}

@@ -210,5 +210,32 @@ const dict: Record<string, string> = {
   "声页为自托管软件，数据保存在你自己的设备上；若实例由他人部署，实际运营信息以该部署者公示为准。":
     "Soundleaf is self-hosted software; your data stays on your own device. If an instance is deployed by someone else, the actual operator is whoever published that instance.",
   "© 2026 熊猫不是猫QAQ · 本地运行，数据自持": "© 2026 熊猫不是猫QAQ · Runs locally, your data stays yours",
+
+  // Settings.tsx — offline local engine
+  "本地离线引擎（无需联网）": "Offline local engine (no internet)",
+  "声音在本机离线生成，无需联网与 API 密钥。":
+    "Voices are generated offline on this machine — no internet or API key needed.",
+  "本地模型": "Local models",
+  "模型下载到数据目录，一次下载永久可用；合成全程在本机 CPU 完成，文本不会发往云端。":
+    "Models download into the data directory once and stay available; synthesis runs entirely on this machine's CPU and no text is sent anywhere.",
+  "本机缺少本地引擎依赖（sherpa-onnx）；官方 Docker 镜像已内置，自建环境需先安装。":
+    "This machine is missing the local engine dependency (sherpa-onnx). The official Docker image bundles it; install it yourself when self-building.",
+  "已就绪": "Ready",
+  "下载中": "Downloading",
+  "下载失败": "Download failed",
+  "下载进度": "Download progress",
+  "取消下载": "Cancel download",
+  "删除模型文件": "Delete model files",
+  "本地引擎暂不支持情绪调节（情绪会体现为轻微语速变化）；克隆音色在音色库页创建。":
+    "The local engine does not adjust emotion yet (emotions surface as slight speed changes); voice clones are created on the voices page.",
+
+  // Cast.tsx — cross-engine voice bindings
+  "{count} 个音色绑定来自其他语音服务，当前引擎无法合成。":
+    "{count} voice bindings come from another speech service and cannot be synthesized by the current engine.",
+  "可以逐个重新绑定，或一键清除全部绑定后从默认音色开始；已生成音频保持可播放并标记待更新。":
+    "Rebind them one by one, or clear all bindings and start from the default voice; generated audio stays playable and is marked pending update.",
+  "清除全部音色绑定": "Clear all voice bindings",
+  "已清除全部音色绑定，请为角色重新选择音色。":
+    "All voice bindings cleared — choose voices for the characters again.",
 };
 export default dict;
