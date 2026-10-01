@@ -26,30 +26,35 @@ def ffmpeg():
 
 def convert(source, destination, mp3=False, timeout=300):
     codec = ["-c:a", "libmp3lame", "-b:a", "192k"] if mp3 else ["-c:a", "pcm_s16le"]
-    result = subprocess.run(
-        [
-            ffmpeg(),
-            "-nostdin",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-i",
-            str(source),
-            "-vn",
-            "-ac",
-            "1",
-            "-ar",
-            "24000",
-            *codec,
-            str(destination),
-        ],
-        capture_output=True,
-        timeout=timeout,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            [
+                ffmpeg(),
+                "-nostdin",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-i",
+                str(source),
+                "-vn",
+                "-ac",
+                "1",
+                "-ar",
+                "24000",
+                *codec,
+                str(destination),
+            ],
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError("音频转码超时，请重试或检查服务器负载") from exc
     if result.returncode:
-        raise ValueError("音频无法解码或转码失败，请检查输入音频与磁盘空间")
+        # The stderr tail is the only clue about codec/disk failures on a NAS.
+        detail = result.stderr.decode("utf-8", "ignore")[-160:].strip()
+        raise ValueError("音频无法解码或转码失败，请检查输入音频与磁盘空间" + (f"：{detail}" if detail else ""))
 
 
 def metadata(path):
@@ -261,7 +266,13 @@ def embed_metadata(source, destination, meta, cover=None):
     if cover:
         cmd += ["-metadata:s:v", "title=Album cover", "-metadata:s:v", "comment=Cover (front)"]
     cmd += [str(destination)]
-    result = subprocess.run(cmd, capture_output=True, timeout=120, check=False)
+    # 192k MP3 ≈ 24 KB/s: scale the deadline with the source size so
+    # hour-long chapters don't trip a fixed cap on slow NAS CPUs.
+    budget = max(120, Path(source).stat().st_size // 24000 + 60)
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=budget, check=False)
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError("元数据写入超时，请重试导出") from exc
     if result.returncode or not Path(destination).exists():
         raise ValueError("元数据写入失败，请重试导出")
 
@@ -319,9 +330,14 @@ def normalize_loudness(path, target_rms=3300, max_gain=2.5):
     with wave.open(str(path), "rb") as w:
         params = w.getparams()
     temporary = path.with_name(path.name + ".norm")
-    with wave.open(str(temporary), "wb") as out:
-        out.setnchannels(params.nchannels)
-        out.setsampwidth(params.sampwidth)
-        out.setframerate(params.framerate)
-        out.writeframes(normalized)
-    temporary.replace(path)
+    try:
+        with wave.open(str(temporary), "wb") as out:
+            out.setnchannels(params.nchannels)
+            out.setsampwidth(params.sampwidth)
+            out.setframerate(params.framerate)
+            out.writeframes(normalized)
+        temporary.replace(path)
+    finally:
+        # A failed write (disk full, kill) must not leave .norm residue that
+        # neither evict_cache's *.wav glob nor any row can reclaim.
+        temporary.unlink(missing_ok=True)

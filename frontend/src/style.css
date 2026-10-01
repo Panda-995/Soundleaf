@@ -1912,6 +1912,11 @@ tr:hover td {
   display: block;
   margin-top: 7px;
 }
+.export-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
 .tabs {
   display: flex;
   gap: 22px;

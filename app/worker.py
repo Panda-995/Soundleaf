@@ -4,9 +4,11 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import threading
 import time
 import zipfile
+from pathlib import Path
 
 from app import audio, providers
 from app.store import uid
@@ -306,6 +308,45 @@ class Worker:
             self.store.execute("DELETE FROM audio WHERE id=?", (row["id"],))
         self.store.execute("DELETE FROM sessions WHERE expires<?", (now,))
 
+    def sweep_orphans(self):
+        """Reconcile files against DB rows for the directories whose files are
+        written before their row: a generate/regen/export cancelled or crashed
+        between the write and the INSERT leaves files no cleanup-by-row pass
+        can ever reach. Runs on the worker thread between jobs, so nothing is
+        mid-write while this scans."""
+        known_audio = {r["id"] for r in self.store.rows("SELECT id FROM audio")}
+        for path in self.store.file("audio").iterdir():
+            if path.stem not in known_audio:
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+        known_exports = {
+            Path(r["path"]).name for r in self.store.rows("SELECT path FROM exports")
+        }
+        for path in self.store.file("exports").iterdir():
+            if path.name not in known_exports:
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+        # tmp/ holds only per-job intermediates (.part/.concat/.meta/…);
+        # nothing legitimate survives a job.
+        for path in self.store.file("tmp").iterdir():
+            try:
+                if path.is_dir():
+                    shutil.rmtree(path, ignore_errors=True)
+                else:
+                    path.unlink()
+            except OSError:
+                pass
+        # normalize_loudness temps; also invisible to evict_cache's *.wav glob.
+        for path in self.store.file("cache").glob("*.norm"):
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
     # Synthesis cache entries written after this point are never evicted, so
     # a book finished minutes ago stays regenerable without re-billing.
     CACHE_FRESH_SECONDS = 6 * 3600
@@ -353,6 +394,7 @@ class Worker:
                 self.next_cleanup = time.time() + self.CLEANUP_INTERVAL
                 try:
                     self.cleanup()
+                    self.sweep_orphans()
                     self.evict_cache()
                 except Exception:  # noqa: BLE001 -- cleanup is best-effort
                     import traceback

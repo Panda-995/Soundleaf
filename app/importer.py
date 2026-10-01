@@ -78,17 +78,47 @@ def chapter_split(text):
     return result
 
 
+def _text_quality(text):
+    """Share of characters a Chinese novel plausibly contains (ASCII, common
+    CJK, standard punctuation). gb18030 decodes almost any byte sequence, so a
+    BOM-less UTF-16 file would otherwise "succeed" as pure gibberish; scoring
+    lets the real UTF-16 decode win."""
+    if not text:
+        return 0.0
+    common = "，。！？、；：“”‘’（）《》…—·【】\n\r\t"
+    good = sum(
+        1
+        for ch in text
+        if ("\u4e00" <= ch <= "\u9fff")
+        or (ch.isascii() and (ch.isprintable() or ch in "\n\r\t"))
+        or ch in common
+    )
+    return good / len(text)
+
+
 def parse(data, filename, encoding="auto"):
     if filename.lower().endswith(".txt"):
-        candidates = [encoding] if encoding != "auto" else ["utf-8-sig", "gb18030", "utf-16"]
         if encoding not in ("auto", "utf-8-sig", "gb18030", "utf-16"):
             raise ValueError("不支持的编码")
-        for codec in candidates:
+        if encoding != "auto":
+            try:
+                text = data.decode(encoding, errors="strict")
+            except UnicodeError as exc:
+                raise ValueError("按所选编码解码失败，请换一种编码") from exc
+            return chapter_split(text), encoding
+        best = None
+        for codec in ("utf-8-sig", "gb18030", "utf-16"):
             try:
                 text = data.decode(codec, errors="strict")
-                return chapter_split(text), codec
             except UnicodeError:
                 continue
+            score = _text_quality(text)
+            if score >= 0.98:
+                return chapter_split(text), codec
+            if best is None or score > best[2]:
+                best = (text, codec, score)
+        if best:
+            return chapter_split(best[0]), best[1]
         raise ValueError("无法识别文本编码，请选择 UTF-8 或 GB18030 后重试")
     if not filename.lower().endswith(".epub"):
         raise ValueError("目前支持 TXT 和无 DRM 的 EPUB 文件")

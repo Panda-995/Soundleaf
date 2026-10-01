@@ -102,6 +102,10 @@ export function usePlayer(options: PlayerOptions) {
       latest.current.run(() => playAudio(next.active_audio!, next.title));
   }
   function reset() {
+    // Bump the sequence too: an in-flight playAudio response returning after
+    // a logout/book switch would otherwise still match the stale id and try
+    // to load audio with a dead session ("音频加载失败" toast out of nowhere).
+    playSeq.current += 1;
     audioRef.current?.pause();
     setAudioMeta(null);
     setPosition(0);

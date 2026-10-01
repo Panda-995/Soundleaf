@@ -39,7 +39,7 @@ def used(chunk, names):
 def make_module(chunk, path, export_name=None, rel=""):
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     if export_name:
-        chunk = re.sub(rf"^function {export_name}\(", f"export function {export_name}(", chunk, count=1, flags=re.M)
+        chunk = re.sub(rf"^function {export_name}\(", f"export function {export_name}(", chunk, count=1, flags=re.MULTILINE)
     head = []
     react_hooks = used(chunk, ["useState", "useEffect", "useRef", "useMemo", "useCallback"])
     if react_hooks or "ReactNode" in chunk or re.search(r"\bReact\.", chunk):
@@ -89,7 +89,7 @@ make_module(ui_body, "frontend/src/components/ui.tsx")
 make_module(block(r"^function Library", r"^function ImportPage"), "frontend/src/pages/Library.tsx", "Library", "../")
 make_module(block(r"^function ImportPage", r"^function ChapterSplitPreview"), "frontend/src/pages/Import.tsx", "ImportPage", "../")
 chapters = block(r"^function ChapterSplitPreview", r"^function Director")
-chapters = re.sub(r"^function ChaptersPage\(", "export function ChaptersPage(", chapters, count=1, flags=re.M)
+chapters = re.sub(r"^function ChaptersPage\(", "export function ChaptersPage(", chapters, count=1, flags=re.MULTILINE)
 head_lines = []
 react_hooks = used(chapters, ["useState", "useEffect", "useRef"])
 head_lines.append(f'import {{ {", ".join(react_hooks)} }} from "react";')

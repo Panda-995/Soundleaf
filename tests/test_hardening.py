@@ -2,6 +2,7 @@
 cleanups that must never regress. Kept separate from test_studio.py by topic."""
 
 import io
+import time
 import wave
 import zipfile
 
@@ -199,3 +200,81 @@ def test_cache_eviction_respects_cap_and_fresh_entries(client, monkeypatch):
     worker.cleanup()
     worker.evict_cache()
     assert (cache / "kept.wav").exists() and (cache / "fresh.wav").exists()
+
+
+def test_sweep_orphans_reclaims_rowless_files(client):
+    """Files written before their row (cancelled/crashed generate, regen or
+    export) are reconciled on the cleanup cycle: rowless audio/exports files,
+    all of tmp/ and cache *.norm go; files with rows stay."""
+
+    store = client.app.state.store
+    worker = client.app.state.worker
+    kept_audio = store.file("audio/keepme.wav")
+    kept_audio.write_bytes(b"wav")
+    store.execute(
+        "INSERT INTO audio VALUES (?,?,?,?,?,?,?,?,?,?)",
+        ("keepme", None, 1, "audio/keepme.wav", 0.1, "[]", "[]", time.time(), None, None),
+    )
+    orphan_wav = store.file("audio/orphan.wav")
+    orphan_mp3 = store.file("audio/orphan.mp3")
+    orphan_wav.write_bytes(b"x")
+    orphan_mp3.write_bytes(b"x")
+    book_id = "b" + "0" * 30
+    store.execute(
+        "INSERT INTO books (id,title,author,source,created) VALUES (?,?,?,?,?)",
+        (book_id, "书", "", "s", 0.0),
+    )
+    kept_export = store.file("exports/keep.zip")
+    kept_export.write_bytes(b"zip")
+    store.execute(
+        "INSERT INTO exports VALUES (?,?,?,?,?,?)",
+        ("e1", book_id, "exports/keep.zip", "zip", 0.0, 1),
+    )
+    orphan_export = store.file("exports/orphan.m4b")
+    orphan_export.write_bytes(b"x")
+    store.file("tmp/job.concat").write_bytes(b"x")
+    store.file("cache/deadbeef.wav.norm").write_bytes(b"x")
+    worker.cleanup()
+    worker.sweep_orphans()
+    assert kept_audio.exists()
+    assert not orphan_wav.exists() and not orphan_mp3.exists()
+    assert kept_export.exists() and not orphan_export.exists()
+    assert not list(store.file("tmp").iterdir())
+    assert not list(store.file("cache").glob("*.norm"))
+
+
+def test_export_delete_removes_row_and_file(client):
+    store = client.app.state.store
+    book_id = "b" + "0" * 30
+    store.execute(
+        "INSERT INTO books (id,title,author,source,created) VALUES (?,?,?,?,?)",
+        (book_id, "书", "", "s", 0.0),
+    )
+    target = store.file("exports/pkg.zip")
+    target.write_bytes(b"zip")
+    store.execute(
+        "INSERT INTO exports VALUES (?,?,?,?,?,?)",
+        ("e1", book_id, "exports/pkg.zip", "zip", 0.0, 1),
+    )
+    assert client.delete("/api/exports/e1").status_code == 200
+    assert not target.exists()
+    assert store.one("SELECT * FROM exports WHERE id='e1'") is None
+    assert client.delete("/api/exports/e1").status_code == 404
+
+
+def test_bomless_utf16_detected_by_quality(client):
+    """gb18030 happily decodes BOM-less UTF-16 bytes into gibberish; the
+    quality heuristic must let the real UTF-16 decode win."""
+    from app import importer
+
+    text = "第一章 灯塔\n暮色落进海面。\n第二章 来信\n他打开了信。\n"
+    chapters, codec = importer.parse(text.encode("utf-16-le"), "小说.txt")
+    assert codec == "utf-16"
+    assert chapters[0]["title"].strip().endswith("灯塔")
+    # Explicit encoding choices keep their exact behaviour (failure = 400).
+    try:
+        importer.parse(text.encode("utf-16-le"), "小说.txt", "utf-8-sig")
+        raised = False
+    except ValueError:
+        raised = True
+    assert raised

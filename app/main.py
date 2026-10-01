@@ -1606,6 +1606,21 @@ def create_app(data_dir=None, start_worker=True):
             raise HTTPException(404, "导出包文件丢失，请重新导出")
         return FileResponse(path, filename=safe_name(row["title"] or "有声书") + path.suffix)
 
+    @app.delete("/api/exports/{ident}")
+    def delete_export(ident: str):
+        """Remove one export package (row + file). Exports are user
+        deliverables and are never auto-pruned; this is the only reclaim path
+        besides deleting the book."""
+        row = store.one("SELECT * FROM exports WHERE id=?", (ident,))
+        if not row:
+            raise HTTPException(404)
+        try:
+            store.file(row["path"]).unlink(missing_ok=True)
+        except OSError:
+            pass
+        store.execute("DELETE FROM exports WHERE id=?", (ident,))
+        return {"ok": True}
+
     @app.get("/api/books/{ident}/progress")
     def get_progress(ident: str):
         return store.one("SELECT * FROM progress WHERE book_id=?", (ident,)) or {}

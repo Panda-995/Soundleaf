@@ -1,15 +1,15 @@
 """Check generated package metadata and legacy/custom mounts before publishing."""
 import json
-from pathlib import Path
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 import yaml
 
 root = Path(__file__).resolve().parents[1]
 project = (root / "ugreen/soundleaf-app/project.yaml").read_text(encoding="utf-8")
-version = re.search(r'^version: "?([^"\n]+)"?', project, re.M).group(1)
+version = re.search(r'^version: "?([^"\n]+)"?', project, re.MULTILINE).group(1)
 image = f"ghcr.io/panda-995/soundleaf:{version}"
 
 package = Path(sys.argv[1])

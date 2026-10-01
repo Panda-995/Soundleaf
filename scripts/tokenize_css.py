@@ -151,6 +151,6 @@ new_root = """:root {
   --red: oklch(0.55 0.19 25);
 }"""
 
-css = re.compile(r":root \{[^}]*\}", re.S).sub(new_root, css, count=1)
+css = re.compile(r":root \{[^}]*\}", re.DOTALL).sub(new_root, css, count=1)
 path.write_text(css, encoding="utf-8")
 print("remaining raw oklch:", Counter(re.findall(r"oklch\([0-9. /]+\)", css)).most_common())

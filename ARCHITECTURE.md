@@ -108,13 +108,14 @@ node scripts/ui-audit.cjs                    # 双主题 × 3 视口 + 焦点/�
 - 界面支持中英切换（侧栏底部）；服务端错误消息仍为中文原文（后端 i18n 未做，`e.message` 直显）。语言切换时已打开的弹窗/Toast 保留旧语言，重新打开即更新。
 - `main.tsx` 仍持有全局 books/settings 与 `common` prop bag：播放器已抽出（player.ts），下一步可把 dirty 守卫上提消掉"切书丢编辑"。
 - 正式章节音频版本无自动清理（cache/ 已有容量淘汰，音频版本保留全部历史供回放）。
+- 孤儿对账（worker.sweep_orphans，随 6h cleanup 周期并在启动后首轮执行）：删除 audio/ 与 exports/ 中无 DB 行的文件（生成/重生成/导出在"写文件之后、INSERT 之前"失败或取消的残留）、清空 tmp/ 全部内容、回收 cache/*.norm 临时文件。cleanup 与任务消费同线程，扫描期间绝无任务在写。
 - 登录/改密失败限速与默认密码校验缓存均记录为进程内存（重启即清，单用户场景可接受）。
 - Jobs 页 2s 轮询在无任务时也在跑（自托管单用户可接受，可做退避）。
 - 情绪标签表前后端各一份（`constants.ts` / `EMOTION_STYLES`），新增情绪需两处同步。
 - SSRF 校验存在 DNS rebinding 时序窗：`validate_url` 解析一次、httpx 建连再解析一次。自托管单用户下暴露面小；彻底修复需要按校验过的 IP 建连（SNI/证书处理复杂），暂以文档记录。
 - `preview` 与 `export` 入队无去重（短试听/导出允许重复提交，成本可控）；其余五类任务的查重+插入已原子化。
 - 设置里的密钥一旦保存无法用空值清空（空值语义是"保留旧值"）。
-- 关闭时 worker join 仅 5 秒，超时的 FFmpeg 子进程与 .tmp 文件依赖下次启动的孤儿清理。
+- 关闭时 worker join 仅 5 秒，超时的 FFmpeg 子进程与 .tmp 文件由孤儿对账周期回收（见数据生命周期）。
 - 通知 webhook（ntfy/Bark 等）按用户自配 URL 直发，不经 `validate_url`（自 SSRF 属预期）。
 - 本地引擎（2026-10）：模型从 GitHub releases 下载（断点续传 + 5 次重试；同次下载内的中断会从已收字节继续，重开应用后重新下载），国内网络慢时启动前设 `SOUNDPAGE_TTS_MIRROR=<前缀>`（ghproxy 风格，拼在完整原始 URL 前，如 `https://ghfast.top`）；Kokoro 音色标签为通用编号名（模型包不含 sid→名字映射，待后续带真实试听后补充）；ZipVoice 的 `speed` 参数对 flow-matching 模型可能无效（sherpa-onnx 透传，不报错）；本地合成无情绪参数，情绪按兼容接口同款策略降级为语速。
 - `_model_cwd` 会在本地合成期间临时修改进程 cwd（espeak-ng 的 Windows 绝对路径缺陷所致）：其正确性依赖"单 worker 线程 + 全工程绝对路径访问"两个不变量——新增后台线程或相对路径文件操作前必读 `app/local_tts.py` 的 docstring。

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import {
   Download,
   RotateCcw,
+  Trash2,
 } from "lucide-react";
 import { Select } from "../components/Select";
 import { Badge, Button, Heading } from "../components/ui";
@@ -117,10 +118,25 @@ export function ExportPage(p: Common) {
                     {new Date(e.created * 1000).toLocaleString()}
                   </small>
                 </div>
-                <a className="button" href={`/api/exports/${e.id}/download`}>
-                  <Download size={16} />
-                  {t("下载")}
-                </a>
+                <div className="export-actions">
+                  <a className="button" href={`/api/exports/${e.id}/download`}>
+                    <Download size={16} />
+                    {t("下载")}
+                  </a>
+                  <Button
+                    title={t("删除导出包")}
+                    disabled={p.busy}
+                    onClick={() =>
+                      p.run(async () => {
+                        await api("/exports/" + e.id, "DELETE");
+                        setHistory(await api("/exports"));
+                        p.notify(t("导出包已删除"));
+                      })
+                    }
+                  >
+                    <Trash2 size={16} />
+                  </Button>
+                </div>
               </div>
             ))}
         </section>

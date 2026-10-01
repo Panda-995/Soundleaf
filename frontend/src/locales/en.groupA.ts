@@ -169,6 +169,10 @@ const dict: Record<string, string> = {
   "删除克隆音色": "Delete voice clone",
   "克隆音色已删除": "Voice clone deleted",
   "如：旁白 · 沉稳男声": "e.g. Narrator · calm male",
+
+  // Export.tsx — package deletion
+  "删除导出包": "Delete export package",
+  "导出包已删除": "Export package deleted",
 };
 
 export default dict;
