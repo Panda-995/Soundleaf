@@ -21,3 +21,6 @@ output/mediaget-panda.md
 
 # 本地 TTS 模型冒烟目录（340MB+ 模型文件，不入库）
 output/local-smoke/
+
+# UI 状态预览实例的数据目录
+output/ui-preview-data/

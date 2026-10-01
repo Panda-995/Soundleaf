@@ -104,7 +104,7 @@ const novel = `第一章 雾中的信\n暮色落进海面的时候，林舟收�
   await download.saveAs(path.resolve('output/runtime/browser-export.zip'));
   checks.push('Version-aware ZIP export and browser download');
   await page.goto(root + '/#settings');
-  await page.getByRole('button', { name: 'AI 分析', exact: true }).click();
+  await page.getByRole('tab', { name: 'AI 分析', exact: true }).click();
   await page.getByLabel('API 基础地址').fill('http://127.0.0.1:18781/v1');
   await page.getByLabel('模型名称').fill('fixture-model');
   await page.getByLabel('允许局域网或本地 HTTP 服务').check();

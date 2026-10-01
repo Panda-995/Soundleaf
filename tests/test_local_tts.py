@@ -359,8 +359,11 @@ def test_download_error_state_is_recoverable(client, monkeypatch):
     """A failed download must surface as its own state (not stuck
     'downloading') and leave delete + re-download available."""
     store = client.app.state.store
-    with local_tts._lock:
-        local_tts._downloads["kokoro-int8"] = {"received": 100, "total": 10, "error": "ReadTimeout: boom"}
+    monkeypatch.setitem(
+        local_tts._downloads,
+        "kokoro-int8",
+        {"received": 100, "total": 10, "error": "ReadTimeout: boom"},
+    )
     state = local_tts.status(store, "kokoro-int8")
     assert state["state"] == "error" and "ReadTimeout" in state["error"]
     # Deleting a dead download is allowed…
@@ -369,8 +372,7 @@ def test_download_error_state_is_recoverable(client, monkeypatch):
     monkeypatch.setattr(local_tts, "_run_download", lambda store_, mid: None)
     result = client.post("/api/local/models/kokoro-int8/download")
     assert result.status_code == 200 and result.json()["state"] == "downloading"
-    with local_tts._lock:
-        local_tts._downloads.pop("kokoro-int8", None)
+    local_tts._downloads.pop("kokoro-int8", None)
 
 
 def test_clone_rejects_oversized_metadata_and_missing_file(client):

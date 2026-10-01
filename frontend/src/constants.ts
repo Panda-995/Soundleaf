@@ -117,4 +117,6 @@ export const qualityLabels: Record<string, string> = {
   clipping: "疑似爆音",
 };
 
-export const APP_VERSION = "v1.1.0";
+// 发版需同步的版本号位置：pyproject.toml、app/main.py（FastAPI version）、
+// ugreen/soundleaf-app/project.yaml、frontend/package.json、本文件。
+export const APP_VERSION = "v1.2.0";

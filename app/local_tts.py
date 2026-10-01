@@ -219,6 +219,10 @@ def delete_model(store, model_id):
         raise ValueError("未知的本地模型")
     if status(store, model_id)["state"] == "downloading":
         raise ValueError("模型正在下载，请先取消")
+    with _lock:
+        # A dead (errored) entry must not outlive its model directory, or the
+        # UI keeps showing 下载失败 for a model that is gone.
+        _downloads.pop(model_id, None)
     shutil.rmtree(models_root(store) / model_id, ignore_errors=True)
     with _lock:
         _engines.pop((MODELS[model_id]["engine"], model_id), None)
@@ -231,8 +235,12 @@ def _run_download(store, model_id):
     try:
         shutil.rmtree(staging, ignore_errors=True)
         staging.mkdir(parents=True)
+        offset = 0
         for relative, archive in spec["files"]:
-            _fetch_file(model_id, relative, staging)
+            _fetch_file(model_id, relative, staging, offset)
+            # Cumulative progress across the catalog's files (ZipVoice ships
+            # two); total stays the spec size set by start_download.
+            offset += (staging / Path(relative).name).stat().st_size
             if archive:
                 _extract(staging / Path(relative).name, staging)
                 # The 100-400MB archives must not ride along into the model
@@ -257,10 +265,13 @@ def _run_download(store, model_id):
             if entry and entry.get("abort"):
                 _downloads.pop(model_id, None)
             else:
+                # ValueErrors are written for humans; anything else keeps its
+                # type name for diagnosability.
+                message = str(exc) if isinstance(exc, ValueError) else f"{type(exc).__name__}: {exc}"
                 if entry:
-                    entry["error"] = f"{type(exc).__name__}: {exc}"[:200]
+                    entry["error"] = message[:200]
                 else:
-                    _downloads[model_id] = {"received": 0, "total": 0, "error": str(exc)[:200]}
+                    _downloads[model_id] = {"received": 0, "total": 0, "error": message[:200]}
     finally:
         shutil.rmtree(staging, ignore_errors=True)
 
@@ -276,10 +287,12 @@ def _aborted(model_id):
         return bool(entry.get("abort"))
 
 
-def _fetch_file(model_id, relative, staging):
+def _fetch_file(model_id, relative, staging, offset=0):
     """Stream one catalog file to ``staging``, resuming from the bytes already
     on disk. GitHub's CDN throttles long single attempts on some routes, so
-    each attempt continues where the previous one stopped (HTTP Range)."""
+    each attempt continues where the previous one stopped (HTTP Range).
+    ``offset`` is the bytes already fetched from earlier files of the same
+    model, keeping the reported progress cumulative."""
     original = f"{RELEASE_PREFIX}/{relative}"
     url = f"{MIRROR_PREFIX}/{original}" if MIRROR_PREFIX else original
     url = validate_url(url, allow_local=True)
@@ -289,22 +302,21 @@ def _fetch_file(model_id, relative, staging):
     for attempt in range(5):
         if _aborted(model_id):
             raise ValueError("下载已取消")
-        received = target.stat().st_size if target.exists() else 0
-        if received > DOWNLOAD_CAP:
+        partial = target.stat().st_size if target.exists() else 0
+        received = offset + partial
+        if partial > DOWNLOAD_CAP:
             raise ValueError("模型文件超过大小上限，已停止下载")
         try:
-            headers = {"Range": f"bytes={received}-"} if received else {}
+            headers = {"Range": f"bytes={partial}-"} if partial else {}
             with httpx.Client(
                 timeout=httpx.Timeout(60, connect=15), trust_env=False, follow_redirects=True
             ) as client, client.stream("GET", url, headers=headers) as response:
                 if response.status_code >= 300:
                     raise ValueError(f"模型下载返回 HTTP {response.status_code}")
-                resumed = response.status_code == 206 and received > 0
-                length = int(response.headers.get("content-length") or 0)
+                resumed = response.status_code == 206 and partial > 0
                 if not resumed:
-                    received = 0
+                    received = offset
                 with _lock:
-                    _downloads[model_id]["total"] = received + length
                     _downloads[model_id]["received"] = received
                 with target.open("ab" if resumed else "wb") as handle:
                     for chunk in response.iter_bytes(1024 * 256):
@@ -313,7 +325,7 @@ def _fetch_file(model_id, relative, staging):
                         received += len(chunk)
                         # Per-chunk, not per-attempt: a server that lies about
                         # (or omits) content-length must still be capped.
-                        if received > DOWNLOAD_CAP:
+                        if received - offset > DOWNLOAD_CAP:
                             raise ValueError("模型文件超过大小上限，已停止下载")
                         handle.write(chunk)
                         with _lock:
@@ -567,18 +579,21 @@ def register_clone(store, name, text, data, filename):
         raise ValueError("克隆音色数量已达上限，请先删除不用的克隆")
     source = clones_root(store) / f"upload-{ident}.{suffix}"
     target = clones_root(store) / f"{ident}.wav"
-    source.write_bytes(data)
-    result = subprocess.run(
-        [
-            ffmpeg(), "-hide_banner", "-loglevel", "error", "-y",
-            "-i", str(source), "-ac", "1", "-ar", "24000", "-sample_fmt", "s16",
-            str(target),
-        ],
-        capture_output=True,
-        timeout=120,
-        check=False,
-    )
-    source.unlink(missing_ok=True)
+    try:
+        source.write_bytes(data)
+        result = subprocess.run(
+            [
+                ffmpeg(), "-hide_banner", "-loglevel", "error", "-y",
+                "-i", str(source), "-ac", "1", "-ar", "24000", "-sample_fmt", "s16",
+                str(target),
+            ],
+            capture_output=True,
+            timeout=120,
+            check=False,
+        )
+    finally:
+        # A timeout (or any ffmpeg crash) must not strand upload-*.wav orphans.
+        source.unlink(missing_ok=True)
     if result.returncode != 0 or not target.is_file():
         raise ValueError("参考音频无法解码，请使用 wav / mp3 / m4a 等常见格式")
     with wave.open(str(target), "rb") as handle:

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   AudioLines,
   Play,
@@ -27,7 +27,8 @@ export function Voices(
   const local = p.settings?.tts.provider === "local";
   const [cloneName, setCloneName] = useState(""),
     [cloneText, setCloneText] = useState(""),
-    [cloneFile, setCloneFile] = useState<File | null>(null);
+    [cloneFile, setCloneFile] = useState<File | null>(null),
+    cloneFileInput = useRef<HTMLInputElement>(null);
   const v = p.voices.find((v) => v.id === selected) || p.voices[0];
   const filtered = p.voices.filter(
     (v) =>
@@ -202,7 +203,9 @@ export function Voices(
             className="clone-form"
             onSubmit={(e) => {
               e.preventDefault();
-              if (!cloneFile) return;
+              // Enter in an input can fire twice within one tick, before the
+              // re-render flips disabled onto the submit button.
+              if (p.busy || !cloneFile) return;
               const data = new FormData();
               data.append("name", cloneName);
               data.append("text", cloneText);
@@ -212,6 +215,9 @@ export function Voices(
                 setCloneName("");
                 setCloneText("");
                 setCloneFile(null);
+                // The uncontrolled input keeps showing the old filename (and
+                // would ignore re-selecting the same file) until cleared.
+                if (cloneFileInput.current) cloneFileInput.current.value = "";
                 p.reload();
                 p.notify(t("克隆音色已创建，可在上方列表试听并绑定角色。"));
               });
@@ -241,6 +247,7 @@ export function Voices(
             <label>
               {t("参考音频")}
               <input
+                ref={cloneFileInput}
                 type="file"
                 required
                 accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg"

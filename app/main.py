@@ -378,6 +378,9 @@ def create_app(data_dir=None, start_worker=True):
             # cache identity (and the stale URL never hits SSRF validation).
             value["base_url"] = ""
             value["model"] = ""
+            # The key lives on in the cloud snapshot for the switch-back; the
+            # active local config never needs it and never sends it anywhere.
+            value["api_key"] = ""
             catalog = {v["id"] for v in local_tts.list_voices(store)}
             if value["voice"] not in catalog:
                 value["voice"] = local_tts.DEFAULT_VOICE

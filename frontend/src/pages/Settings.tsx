@@ -65,13 +65,13 @@ function LocalModels({ run }: { run: Common["run"] }) {
           </div>
           <div className="model-actions">
             {m.state !== "ready" && m.state !== "downloading" && (
-              <Button disabled={!!dependency} onClick={() => run(() => api(`/local/models/${m.id}/download`).then(load))}>
+              <Button disabled={!!dependency} onClick={() => run(() => api(`/local/models/${m.id}/download`, "POST").then(load))}>
                 <Download size={16} />
                 {t("下载")}
               </Button>
             )}
             {m.state === "downloading" && (
-              <Button onClick={() => run(() => api(`/local/models/${m.id}/abort`).then(load))}>
+              <Button onClick={() => run(() => api(`/local/models/${m.id}/abort`, "POST").then(load))}>
                 <X size={16} />
                 {t("取消下载")}
               </Button>
@@ -128,7 +128,7 @@ export function SettingsPage(p: Common) {
   return (
     <>
       <Heading title={t("设置")} sub={t("连接声音，管理你的工作室。")} />
-      <div className="tabs">
+      <div className="tabs" role="tablist">
         {[
           ["tts", "语音服务"],
           ["ai", "AI 分析"],
@@ -140,6 +140,8 @@ export function SettingsPage(p: Common) {
           <button
             className={tab === id ? "active" : ""}
             onClick={() => setTab(id as string)}
+            role="tab"
+            aria-selected={tab === id}
             key={id}
           >
             {t(label)}

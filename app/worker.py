@@ -361,7 +361,14 @@ class Worker:
             if self.store.get("paused"):
                 self.stop.wait(0.5)
                 continue
-            job = self.claim()
+            try:
+                job = self.claim()
+            except Exception:  # noqa: BLE001 -- a failed claim must not kill the thread
+                import traceback
+
+                traceback.print_exc()
+                self.stop.wait(1)
+                continue
             if not job:
                 self.stop.wait(0.5)
                 continue
@@ -1057,7 +1064,6 @@ class Worker:
                 newline="\n",
             )
             meta_file.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
-            meta_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
             audio.build_m4b(list_file, meta_file, temporary, cover=cover, total_duration=total)
             temporary.replace(target)
             self.store.execute(

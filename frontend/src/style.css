@@ -4201,7 +4201,7 @@ dialog::backdrop {
 /* --- 本地引擎：模型管理与克隆音色 --- */
 .local-models {
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 11px;
   padding: 18px 20px;
   margin-bottom: 24px;
 }
@@ -4301,4 +4301,14 @@ dialog::backdrop {
 .cast-stale .button {
   flex-shrink: 0;
   margin-left: auto;
+}
+@media (max-width: 768px) {
+  .cast-stale {
+    flex-wrap: wrap;
+  }
+  .cast-stale .button {
+    margin-left: 0;
+    width: 100%;
+    justify-content: center;
+  }
 }

@@ -82,14 +82,18 @@ export function CastPage(p: Common) {
   const narratorVoice = data.narrator_voice || p.settings?.tts?.voice || "";
   // Voice bindings that the current engine's catalogue cannot resolve — they
   // appear after switching speech services and would fail generation with
-  // 未知音色. Offer a one-click reset instead of a dead end.
-  const staleBindings = [
-    ...new Set(
-      [data.narrator_voice, ...data.cast.map((m) => m.voice)].filter(
-        (v) => v && !p.voices.some((x) => x.id === v),
-      ),
-    ),
-  ];
+  // 未知音色. Offer a one-click reset instead of a dead end. Gated on
+  // settings being loaded: voices arrive atomically with them, so an empty
+  // catalogue before first load cannot flag valid bindings as stale.
+  const staleBindings = p.settings
+    ? [
+        ...new Set(
+          [data.narrator_voice, ...data.cast.map((m) => m.voice)].filter(
+            (v) => v && !p.voices.some((x) => x.id === v),
+          ),
+        ),
+      ]
+    : [];
   return (
     <>
       <Heading
