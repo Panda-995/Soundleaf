@@ -108,9 +108,10 @@ node scripts/ui-audit.cjs                    # 双主题 × 3 视口 + 焦点/�
 - 界面支持中英切换（侧栏底部）；服务端错误消息仍为中文原文（后端 i18n 未做，`e.message` 直显）。语言切换时已打开的弹窗/Toast 保留旧语言，重新打开即更新。
 - `main.tsx` 仍持有全局 books/settings 与 `common` prop bag：播放器已抽出（player.ts），下一步可把 dirty 守卫上提消掉"切书丢编辑"。
 - 正式章节音频版本无自动清理（cache/ 已有容量淘汰，音频版本保留全部历史供回放）。
-- 孤儿对账（worker.sweep_orphans，随 6h cleanup 周期并在启动后首轮执行）：删除 audio/ 与 exports/ 中无 DB 行的文件（生成/重生成/导出在"写文件之后、INSERT 之前"失败或取消的残留）、清空 tmp/ 全部内容、回收 cache/*.norm 临时文件。cleanup 与任务消费同线程，扫描期间绝无任务在写。
+- 孤儿对账（worker.sweep_orphans，随 6h cleanup 周期并在启动后首轮执行）：删除 audio/ 与 exports/ 中无 DB 行的文件（生成/重生成/导出在"写文件之后、INSERT 之前"失败或取消的残留）、covers/ 中无书籍引用的文件、清空 tmp/ 全部内容、回收 cache/*.norm 临时文件。cleanup 与任务消费同线程，扫描期间绝无任务在写。
+- AI 导演页任务完成回填**尊重未保存编辑**：dirty 时只合并 suggestion/restructure 字段并提示用户先保存正文，绝不整体覆盖片段（说话者/音色/情绪等编辑不可静默丢失）。regen-segment 去重按章节+片段号（不同片段号在跑时返回 409）。
 - 登录/改密失败限速与默认密码校验缓存均记录为进程内存（重启即清，单用户场景可接受）。
-- Jobs 页 2s 轮询在无任务时也在跑（自托管单用户可接受，可做退避）。
+- Jobs 页 2s 轮询在无任务时也在跑（自托管单用户可接受，可做退避）；AI 导演页 1.5s 共享轮询与分章页 2s 轮询同族（分章页对终态任务只拉一次详情，避免整书 payload 反复下载）。
 - 情绪标签表前后端各一份（`constants.ts` / `EMOTION_STYLES`），新增情绪需两处同步。
 - SSRF 校验存在 DNS rebinding 时序窗：`validate_url` 解析一次、httpx 建连再解析一次。自托管单用户下暴露面小；彻底修复需要按校验过的 IP 建连（SNI/证书处理复杂），暂以文档记录。
 - `preview` 与 `export` 入队无去重（短试听/导出允许重复提交，成本可控）；其余五类任务的查重+插入已原子化。

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as Menu from "@radix-ui/react-select";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
+import { t } from "../i18n";
 
 type Props = Omit<
   React.SelectHTMLAttributes<HTMLSelectElement>,
@@ -81,7 +82,7 @@ export function Select({
           <Menu.Viewport className="select-options">
             {!selected && (
               <Menu.Item value={actual || empty} className="select-option">
-                <Menu.ItemText>{actual || "请选择"}</Menu.ItemText>
+                <Menu.ItemText>{actual || t("请选择")}</Menu.ItemText>
               </Menu.Item>
             )}
             {options.map((o, i) => (

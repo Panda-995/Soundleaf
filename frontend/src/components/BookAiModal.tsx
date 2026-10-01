@@ -73,7 +73,7 @@ export function BookAiModal(p: Props) {
       <>
         <p>{t("正在根据书名和开头片段推断作者、简介与封面设计…")}</p>
         <p className="muted">{t("通常需要几十秒，取决于 AI 服务速度。")}</p>
-        <Button onClick={p.onBackground}>后台等待</Button>
+        <Button onClick={p.onBackground}>{t("后台等待")}</Button>
       </>
     );
   }
@@ -82,7 +82,7 @@ export function BookAiModal(p: Props) {
       <>
         <p>{t("AI 正在绘制封面，完成后自动应用到书籍…")}</p>
         <p className="muted">{t("生成一张插画通常需要十几秒到一分钟。")}</p>
-        <Button onClick={p.onBackground}>后台等待</Button>
+        <Button onClick={p.onBackground}>{t("后台等待")}</Button>
       </>
     );
   }

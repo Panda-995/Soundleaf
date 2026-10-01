@@ -101,6 +101,9 @@ function ChapterAnalysis(p: Common) {
   const b = p.book!;
   useEffect(() => {
     let alive = true;
+    // Local to the effect: the state variable would be stale in the interval
+    // closure. Controls whether the heavy detail payload is refetched.
+    let detailFresh = true;
     const load = async () => {
       try {
         const data = await api("/jobs");
@@ -116,9 +119,20 @@ function ChapterAnalysis(p: Common) {
             !applied.includes(j.id),
         );
         if (latest) {
-          const full = await api("/jobs/" + latest.id);
-          if (alive) setJob(full);
-        } else if (alive) setJob(null);
+          // The detail payload embeds the whole proposed book text (MBs for
+          // a long novel) — refetch it once when discovered and again only
+          // while it is still moving, never on a 2s loop for a finished job.
+          if (alive && detailFresh) {
+            const full = await api("/jobs/" + latest.id);
+            if (alive) {
+              setJob(full);
+              detailFresh = ["queued", "running"].includes(full.status);
+            }
+          }
+        } else if (alive) {
+          setJob(null);
+          detailFresh = true;
+        }
       } catch {}
     };
     load();

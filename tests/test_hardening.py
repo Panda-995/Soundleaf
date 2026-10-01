@@ -278,3 +278,41 @@ def test_bomless_utf16_detected_by_quality(client):
     except ValueError:
         raised = True
     assert raised
+
+
+def test_regen_dedup_is_per_segment(client, monkeypatch, wav_bytes):
+    """A running regen for one segment must not silently serve a job for a
+    different segment (queue retry / two tabs)."""
+    b = import_book(client, "第一章 台球\n第一段。\n第二段。")
+    cid = b["chapters"][0]["id"]
+    monkeypatch.setattr(providers, "synthesize", lambda config, s, store=None: wav_bytes)
+    ident = client.post(f"/api/books/{b['id']}/generate", json={"chapter_ids": [cid]}).json()["ids"][0]
+    row = client.app.state.store.one("SELECT * FROM jobs WHERE id=?", (ident,))
+    client.app.state.worker.update(ident, status="running")
+    client.app.state.worker.run(row)
+    client.app.state.worker.update(ident, status="succeeded", stage="已完成")
+    first = client.post(f"/api/chapters/{cid}/regen-segment", json={"index": 0})
+    assert first.status_code == 200
+    # Fake the first regen as still running, then request a different index.
+    client.app.state.store.execute(
+        "UPDATE jobs SET status='running' WHERE id=?", (first.json()["id"],)
+    )
+    clash = client.post(f"/api/chapters/{cid}/regen-segment", json={"index": 1})
+    assert clash.status_code == 409
+    same = client.post(f"/api/chapters/{cid}/regen-segment", json={"index": 0})
+    assert same.status_code == 200 and same.json()["id"] == first.json()["id"]
+
+
+def test_sweep_orphans_reclaims_orphan_covers(client):
+    store = client.app.state.store
+    kept = store.file("covers/keep.svg")
+    kept.write_text("<svg/>")
+    book_id = "c" + "0" * 30
+    store.execute(
+        "INSERT INTO books (id,title,author,source,created,cover) VALUES (?,?,?,?,?,?)",
+        (book_id, "书", "", "s", 0.0, "covers/keep.svg"),
+    )
+    orphan = store.file("covers/orphan.svg")
+    orphan.write_text("<svg/>")
+    client.app.state.worker.sweep_orphans()
+    assert kept.exists() and not orphan.exists()

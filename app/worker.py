@@ -346,6 +346,18 @@ class Worker:
                 path.unlink()
             except OSError:
                 pass
+        # covers written just before their books.cover UPDATE (a failed
+        # generation or upload leaves them behind forever otherwise).
+        known_covers = {
+            Path(r["cover"]).name
+            for r in self.store.rows("SELECT cover FROM books WHERE cover IS NOT NULL")
+        }
+        for path in self.store.file("covers").iterdir():
+            if path.name not in known_covers:
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
 
     # Synthesis cache entries written after this point are never evicted, so
     # a book finished minutes ago stays regenerable without re-billing.
@@ -400,7 +412,14 @@ class Worker:
                     import traceback
 
                     traceback.print_exc()
-            if self.store.get("paused"):
+            try:
+                paused = self.store.get("paused")
+            except Exception:  # noqa: BLE001 -- a dying DB must not kill the thread
+                import traceback
+
+                traceback.print_exc()
+                paused = False
+            if paused:
                 self.stop.wait(0.5)
                 continue
             try:

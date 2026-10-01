@@ -1422,11 +1422,16 @@ def create_app(data_dir=None, start_worker=True):
             raise ValueError("音频时间轴中找不到该片段，请先生成本章")
         with store.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            # Same-chapter dedup, but only for the SAME segment: returning a
+            # running job for a different index would silently regenerate the
+            # wrong line (reachable via queue retry or two tabs).
             existing = db.execute(
-                "SELECT id FROM jobs WHERE chapter_id=? AND kind='regen_segment' "
+                "SELECT id,payload FROM jobs WHERE chapter_id=? AND kind='regen_segment' "
                 "AND status IN ('queued','running')",
                 (ident,),
             ).fetchone()
+            if existing and json.loads(existing["payload"]).get("index") != index:
+                raise HTTPException(409, "该章节有另一片段正在重生成，请等它完成后再试")
             job_id = (
                 existing["id"]
                 if existing
@@ -1628,7 +1633,10 @@ def create_app(data_dir=None, start_worker=True):
     @app.put("/api/books/{ident}/progress")
     def save_progress(ident: str, body: dict):
         book(ident)
-        seconds = float(body.get("seconds") or 0)
+        try:
+            seconds = float(body.get("seconds") or 0)
+        except (TypeError, ValueError):
+            raise ValueError("播放进度数值无效") from None
         audio_id = str(body.get("audio_id") or "")
         row = store.one(
             "SELECT a.duration FROM audio a JOIN chapters c ON c.id=a.chapter_id WHERE a.id=? AND c.book_id=?",
@@ -1643,7 +1651,10 @@ def create_app(data_dir=None, start_worker=True):
     def add_mark(ident: str, body: dict):
         chapter(ident)
         note = str(body.get("note", "")).strip()[:1000]
-        seconds = float(body.get("seconds") or 0)
+        try:
+            seconds = float(body.get("seconds") or 0)
+        except (TypeError, ValueError):
+            raise ValueError("请填写有效的问题说明") from None
         if not note or not 0 <= seconds < 1000000:
             raise ValueError("请填写有效的问题说明")
         mark = {"id": uid(), "seconds": seconds, "note": note, "created": time.time()}

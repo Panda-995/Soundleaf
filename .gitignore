@@ -24,3 +24,8 @@ output/local-smoke/
 
 # UI 状态预览实例的数据目录
 output/ui-preview-data/
+
+# 本地引擎 E2E 临时产物（含测试实例数据目录与模型副本）
+output/e2e-data/
+output/e2e-cookies.txt
+output/e2e-novel.txt

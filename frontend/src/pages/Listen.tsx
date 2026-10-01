@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Download,
   Play,
@@ -24,6 +24,15 @@ export function Listen(
     goFixSegment: (chapterId: string, index: number) => void;
   },
 ) {
+  const timelineIndex = useMemo(
+    () => new Map((p.audioMeta?.timeline ?? []).map((t) => [t.index, t])),
+    [p.audioMeta?.timeline],
+  );
+  const qualityIndex = useMemo(
+    () =>
+      new Map((p.audioMeta?.quality?.segments ?? []).map((q) => [q.index, q])),
+    [p.audioMeta?.quality],
+  );
   const [text, setText] = useState<ChapterDetail | null>(null);
   const [textState, setTextState] = useState<"loading" | "ready" | "error">(
     "loading",
@@ -247,16 +256,12 @@ export function Listen(
               </p>
             ) : null}
             {text?.segments.map((s, i) => {
-              const at = p.audioMeta?.timeline.find((t) => t.index === i);
-              const issues =
-                p.audioMeta?.quality?.segments.find((q) => q.index === i)?.issues ||
-                [];
-              const current = p.audioMeta?.timeline.some(
-                (t) =>
-                  t.index === i &&
-                  p.position >= t.start &&
-                  p.position < t.end,
-              );
+              // Index maps, not per-row find(): a 4000-segment chapter made
+              // every playback tick O(n²).
+              const at = timelineIndex.get(i);
+              const issues = qualityIndex.get(i)?.issues || [];
+              const current =
+                !!at && p.position >= at.start && p.position < at.end;
               return at ? (
                 <button
                   className={current ? "current" : ""}

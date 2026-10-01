@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef} from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Clapperboard,
   Play,
@@ -30,6 +30,12 @@ export function Director(
     [index, setIndex] = useState(0),
     [dirty, setDirty] = useState(false),
     [switching, setSwitching] = useState(false);
+  // Polling callbacks close over stale state; the ref mirrors dirty so a
+  // finished job can honour unsaved segment edits (speaker/voice/emotion/…).
+  const dirtyRef = useRef(false);
+  useEffect(() => {
+    dirtyRef.current = dirty;
+  }, [dirty]);
   useEffect(() => {
     // Keep the whole workspace mounted while switching chapters: only the
     // script body fades out and back in with the new content.
@@ -145,9 +151,15 @@ export function Director(
           setRegen(null);
           if (chapterRef.current !== forChapter) return;
           if (j.status === "succeeded") {
-            const d = await api<ChapterDetail>("/chapters/" + forChapter);
-            setDetail(d);
-            p.notify(t("该片段音频已就地更新。"));
+            if (dirtyRef.current) {
+              // The server segments may predate the user's unsaved edits;
+              // keep them and refresh only the player-facing metadata.
+              p.notify(t("该片段音频已就地更新；你有未保存的修改，保存前请以当前编辑为准。"));
+            } else {
+              const d = await api<ChapterDetail>("/chapters/" + forChapter);
+              setDetail(d);
+              p.notify(t("该片段音频已就地更新。"));
+            }
           } else {
             p.notify(j.error || t("片段重生成未完成"));
           }
@@ -191,6 +203,13 @@ export function Director(
         onSuccess: async () => {
           const next = await api<ChapterDetail>("/chapters/" + p.chapterId);
           if (!alive) return;
+          if (dirtyRef.current) {
+            // Deliver the suggestion without clobbering unsaved segment
+            // edits (only the script body is disabled during analysis).
+            setDetail((cur) => (cur ? { ...cur, suggestion: next.suggestion } : next));
+            p.notify(t("分析完成；你有未保存的修改，建议已保留，采纳分段前请先保存正文。"));
+            return;
+          }
           setDetail(next);
           setIndex(0);
           p.notify(t("角色与朗读建议已就绪，请核对后采纳。"));
@@ -216,6 +235,11 @@ export function Director(
         onSuccess: async () => {
           const next = await api<ChapterDetail>("/chapters/" + p.chapterId);
           if (!alive) return;
+          if (dirtyRef.current) {
+            setDetail((cur) => (cur ? { ...cur, restructure: next.restructure } : next));
+            p.notify(t("优化分段完成；你有未保存的修改，结果已保留，采纳前请先保存正文。"));
+            return;
+          }
           setDetail(next);
           setIndex((cur) => Math.min(cur, Math.max(0, next.segments.length - 1)));
           p.notify(t("AI 已重新切分章节，可在下方面板预览后再决定是否采纳。"));
@@ -250,7 +274,11 @@ export function Director(
             } else if (job.status !== "succeeded") p.notify(job.error || cfg.stoppedLabel);
             if (alive) cfg.setId("");
           }
-        } catch {}
+        } catch {
+          // A deleted chapter (or failed detail fetch) would otherwise retry
+          // this finished job forever; drop it and let the next pass rediscover.
+          if (alive) cfg.setId("");
+        }
       }
     };
     poll();
@@ -282,9 +310,22 @@ export function Director(
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [dirty]);
+  const suggestionIndex = useMemo(
+    () =>
+      new Map(
+        (detail?.suggestion?.segments ?? []).map((v) => [v.index, v]),
+      ),
+    [detail?.suggestion],
+  );
   const load = async () => {
-    setDetail(await api("/chapters/" + p.chapterId));
-    setDirty(false);
+    // A manual reload racing a chapter switch must not write the old
+    // chapter back over the new one.
+    const forChapter = p.chapterId;
+    const d = await api<ChapterDetail>("/chapters/" + forChapter);
+    if (chapterRef.current === forChapter) {
+      setDetail(d);
+      setDirty(false);
+    }
   };
   const change = (key: keyof Segment, value: string | number) => {
     if (!detail) return;
@@ -568,9 +609,9 @@ export function Director(
           </label>
           {detail.segments.length ? (
             detail.segments.map((seg, i) => {
-              const suggestion = detail.suggestion?.segments.find(
-                (v) => v.index === i,
-              );
+              // Built once per suggestion change (see useMemo below), not per
+              // row: a 4000-segment chapter made this find() O(n²).
+              const suggestion = suggestionIndex.get(i);
               const speakerKey = seg.speaker || "旁白";
               const isDialogue = speakerKey !== "旁白";
               return (
@@ -594,7 +635,7 @@ export function Director(
                       {String(i + 1).padStart(2, "0")}
                     </span>
                     <Badge kind={isDialogue ? "mint" : ""}>{t(speakerKey)}</Badge>
-                    <Badge>{t(emotions[seg.emotion])}</Badge>
+                    <Badge>{t(emotions[seg.emotion] || "默认")}</Badge>
                     {seg.voice && (
                       <Badge kind="lime">
                         {p.voices.find((v) => v.id === seg.voice)?.name ||
@@ -714,7 +755,9 @@ export function Director(
                   max="3000"
                   step="50"
                   value={s.pause}
-                  onChange={(e) => change("pause", +e.target.value)}
+                  onChange={(e) =>
+                    change("pause", Math.max(0, Math.min(3000, +e.target.value || 0)))
+                  }
                 />
               </label>
               <Button

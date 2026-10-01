@@ -50,6 +50,12 @@ export function Library({
   // (X / Escape / 后台等待), finish silently with a toast instead of popping
   // the modal back open; if the page itself unmounted, say the job lives on.
   const unmountedRef = useRef(false);
+  useEffect(
+    () => () => {
+      unmountedRef.current = true;
+    },
+    [],
+  );
   useEffect(() => {
     if ((ai?.phase !== "running" && ai?.phase !== "cover") || !ai.jobId) return;
     let alive = true;
@@ -62,8 +68,14 @@ export function Library({
         const dialogOpen = !!document.querySelector("dialog[open]");
         if (job.status === "succeeded") {
           if (ai.phase === "running") {
-            if (job.meta) setAi({ ...ai, phase: "result", meta: job.meta });
-            else setAi({ ...ai, phase: "error", error: t("AI 没有返回书籍资料") });
+            if (dialogOpen) {
+              if (job.meta) setAi({ ...ai, phase: "result", meta: job.meta });
+              else setAi({ ...ai, phase: "error", error: t("AI 没有返回书籍资料") });
+            } else {
+              setAi(null);
+              reload();
+              notify(t("AI 任务完成，结果可在书架查看。"));
+            }
           } else if (dialogOpen) {
             setModal(null);
             setAi(null);

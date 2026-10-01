@@ -184,6 +184,12 @@ const dict: Record<string, string> = {
   "疑似静音": "Silent?",
   "时长异常": "Abnormal length",
   "疑似爆音": "Clipping?",
+  "后台等待": "Wait in background",
+  "请选择": "Select\u2026",
+  "分析完成；你有未保存的修改，建议已保留，采纳分段前请先保存正文。": "Analysis done; you have unsaved edits. The suggestions are kept \u2014 save the script before adopting.",
+  "优化分段完成；你有未保存的修改，结果已保留，采纳前请先保存正文。": "Resegmentation done; you have unsaved edits. The proposal is kept \u2014 save the script before adopting.",
+  "该片段音频已就地更新；你有未保存的修改，保存前请以当前编辑为准。": "Segment audio updated in place; you have unsaved edits \u2014 your current edits take precedence until saved.",
+  "AI 任务完成，结果可在书架查看。": "AI task finished; see the result on your shelf.",
 };
 
 export default dict;
