@@ -159,7 +159,7 @@ function App() {
       // The loaded audio belongs to the previous book; keep it from bleeding
       // into the new book's Listen page.
       setChapterId("");
-      if (player.audioMeta) player.reset();
+      player.reset();
     }
     setBookId(id);
     localStorage.setItem("soundleaf-book", id);

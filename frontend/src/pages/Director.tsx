@@ -33,6 +33,12 @@ export function Director(
   // Polling callbacks close over stale state; the ref mirrors dirty so a
   // finished job can honour unsaved segment edits (speaker/voice/emotion/…).
   const dirtyRef = useRef(false);
+  const editSequence = useRef(0);
+  const markDirty = () => {
+    editSequence.current += 1;
+    dirtyRef.current = true;
+    setDirty(true);
+  };
   useEffect(() => {
     dirtyRef.current = dirty;
   }, [dirty]);
@@ -335,17 +341,27 @@ export function Director(
         i === index ? { ...s, [key]: value } : s,
       ),
     });
-    setDirty(true);
+    markDirty();
   };
   const save = async () => {
     if (!detail) return;
-    const d = await api("/chapters/" + detail.id, "PUT", {
+    const savedChapter = detail.id;
+    const savedSequence = editSequence.current;
+    const d = await api<ChapterDetail>("/chapters/" + savedChapter, "PUT", {
       revision: detail.revision,
       title: detail.title,
       segments: detail.segments,
     });
-    setDetail(d);
-    setDirty(false);
+    if (chapterRef.current !== savedChapter) return;
+    if (editSequence.current === savedSequence) {
+      setDetail(d);
+      dirtyRef.current = false;
+      setDirty(false);
+    } else {
+      setDetail((current) =>
+        current?.id === savedChapter ? { ...current, revision: d.revision } : current,
+      );
+    }
     p.reload();
     p.notify(t("已保存。旧音频保留，可重新生成更新版本。"));
   };
@@ -576,16 +592,18 @@ export function Director(
                 </Button>
                 <Button
                   className="subtle"
+                  disabled={p.busy}
                   onClick={() =>
                     p.run(async () => {
+                      const forChapter = detail.id;
                       await api(
-                        `/chapters/${detail.id}/dismiss-restructure`,
+                        `/chapters/${forChapter}/dismiss-restructure`,
                         "POST",
                       );
-                      const d = await api<ChapterDetail>(
-                        "/chapters/" + detail.id,
+                      if (chapterRef.current !== forChapter) return;
+                      setDetail((current) =>
+                        current?.id === forChapter ? { ...current, restructure: null } : current,
                       );
-                      setDetail(d);
                       p.notify(t("已忽略本次 AI 分段建议。"));
                     })
                   }
@@ -602,7 +620,7 @@ export function Director(
               disabled={analyzing || restructuring}
               onChange={(e) => {
                 setDetail({ ...detail, title: e.target.value });
-                setDirty(true);
+                markDirty();
               }}
               maxLength={200}
             />
@@ -662,7 +680,7 @@ export function Director(
               <Button
                 onClick={() => {
                   setDetail({ ...detail, segments: [baseSegment("")] });
-                  setDirty(true);
+                  markDirty();
                 }}
               >
                 {t("添加正文")}
@@ -864,7 +882,7 @@ export function Director(
                       suggestion: null,
                     });
                     setIndex(0);
-                    setDirty(true);
+                    markDirty();
                   }}
                 >
                   <Clapperboard size={15} />
@@ -902,7 +920,7 @@ export function Director(
                             seg.speaker === sp.name ? { ...seg, voice } : seg,
                           ),
                         });
-                        setDirty(true);
+                        markDirty();
                       }}
                     >
                       <option value="">{t("跟随书籍设置")}</option>

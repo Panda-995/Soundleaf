@@ -3,6 +3,7 @@
 import json
 import os
 import sqlite3
+import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -34,6 +35,7 @@ def uid():
 
 class Store:
     def __init__(self, root):
+        self.cover_lock = threading.RLock()
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         for folder in ("sources", "audio", "cache", "exports", "tmp", "covers"):
@@ -89,6 +91,7 @@ class Store:
                 "ALTER TABLE audio ADD COLUMN quality TEXT",
                 "ALTER TABLE audio ADD COLUMN cast_version INTEGER",
                 "ALTER TABLE chapters ADD COLUMN stale_segments TEXT",
+                "ALTER TABLE jobs ADD COLUMN remote_inflight INTEGER NOT NULL DEFAULT 0",
             ):
                 try:
                     db.execute(statement)

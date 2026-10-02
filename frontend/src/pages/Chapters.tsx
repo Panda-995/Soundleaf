@@ -104,6 +104,7 @@ function ChapterAnalysis(p: Common) {
     // Local to the effect: the state variable would be stale in the interval
     // closure. Controls whether the heavy detail payload is refetched.
     let detailFresh = true;
+    let detailJobId: string | null = null;
     const load = async () => {
       try {
         const data = await api("/jobs");
@@ -119,6 +120,10 @@ function ChapterAnalysis(p: Common) {
             !applied.includes(j.id),
         );
         if (latest) {
+          if (latest.id !== detailJobId) {
+            detailJobId = latest.id;
+            detailFresh = true;
+          }
           // The detail payload embeds the whole proposed book text (MBs for
           // a long novel) — refetch it once when discovered and again only
           // while it is still moving, never on a 2s loop for a finished job.
@@ -131,6 +136,7 @@ function ChapterAnalysis(p: Common) {
           }
         } else if (alive) {
           setJob(null);
+          detailJobId = null;
           detailFresh = true;
         }
       } catch {}

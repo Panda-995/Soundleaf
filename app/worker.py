@@ -245,10 +245,12 @@ class Worker:
 
     def start(self):
         # A request in flight may already have been billed. Never replay it silently.
-        # The listed stages are exactly the paid-call windows of the job kinds.
+        # Stage matching also protects jobs persisted by older versions.
         self.store.execute(
             "UPDATE jobs SET status='needs_review',error='服务请求中断，结果可能已生成。确认服务端结果后重试。' "
-            "WHERE status='running' AND stage IN ('请求语音服务','AI 绘制封面','分析书籍资料')"
+            "WHERE status='running' AND (remote_inflight=1 OR stage IN "
+            "('请求语音服务','AI 绘制封面','分析书籍资料','分析朗读节奏',"
+            "'按语义归并段落','AI 正在按语义归并段落','识别章节结构','识别原文章节标题'))"
         )
         self.store.execute("UPDATE jobs SET status='queued',stage='恢复任务' WHERE status='running'")
         self.thread.start()
@@ -348,16 +350,17 @@ class Worker:
                 pass
         # covers written just before their books.cover UPDATE (a failed
         # generation or upload leaves them behind forever otherwise).
-        known_covers = {
-            Path(r["cover"]).name
-            for r in self.store.rows("SELECT cover FROM books WHERE cover IS NOT NULL")
-        }
-        for path in self.store.file("covers").iterdir():
-            if path.name not in known_covers:
-                try:
-                    path.unlink()
-                except OSError:
-                    pass
+        with self.store.cover_lock:
+            known_covers = {
+                Path(r["cover"]).name
+                for r in self.store.rows("SELECT cover FROM books WHERE cover IS NOT NULL")
+            }
+            for path in self.store.file("covers").iterdir():
+                if path.name not in known_covers:
+                    try:
+                        path.unlink()
+                    except OSError:
+                        pass
 
     # Synthesis cache entries written after this point are never evicted, so
     # a book finished minutes ago stays regenerable without re-billing.
@@ -436,7 +439,7 @@ class Worker:
             try:
                 try:
                     self.run(job)
-                    self.update(job["id"], status="succeeded", stage="已完成")
+                    self.update(job["id"], status="succeeded", stage="已完成", remote_inflight=0)
                 except Cancelled:
                     self.update(job["id"], status="cancelled", stage="已取消")
                 except providers.UncertainResult as exc:
@@ -486,6 +489,7 @@ class Worker:
             self.update(
                 job_id,
                 stage="本地合成中" if config.get("provider") == "local" else "请求语音服务",
+                remote_inflight=int(config.get("provider") != "local"),
             )
         units = synthesis_units(segment, config.get("voice", ""))
         try:
@@ -509,6 +513,8 @@ class Worker:
         # Loudness normalization: one shared RMS target keeps different voices,
         # emotions and providers at a similar perceived volume.
         audio.normalize_loudness(cached)
+        if job_id:
+            self.update(job_id, remote_inflight=0)
         return cached
 
     def run(self, job):
@@ -517,6 +523,7 @@ class Worker:
             return self.export(job, payload)
         config = json.loads(self.store.cipher.decrypt(payload["config"].encode()))
         if job["kind"] == "analyze":
+            self.update(job["id"], remote_inflight=1)
             self.update(job["id"], stage="分析朗读节奏", total=len(payload["segments"]))
             suggestions = []
             cast = payload.get("cast", {}).copy()
@@ -562,6 +569,7 @@ class Worker:
             )
             return
         if job["kind"] == "restructure":
+            self.update(job["id"], remote_inflight=1)
             self.update(job["id"], stage="按语义归并段落", total=1)
 
             def progress(done, total):
@@ -611,6 +619,7 @@ class Worker:
             )
             return
         if job["kind"] == "generate_cover":
+            self.update(job["id"], remote_inflight=1)
             self.update(job["id"], stage="AI 绘制封面", total=1)
             image, ext = providers.generate_cover_image(
                 config,
@@ -620,25 +629,26 @@ class Worker:
                 payload.get("extra", ""),
             )
             self.check(job["id"])
-            ident = uid()
-            relative = f"covers/{ident}{ext}"
-            temporary = self.store.file(f"tmp/{ident}{ext}")
-            try:
-                temporary.write_bytes(image)
-                temporary.replace(self.store.file(relative))
-            except OSError as exc:
-                raise ValueError("封面保存失败，请检查磁盘空间") from exc
-            finally:
-                temporary.unlink(missing_ok=True)
-            old = self.store.one("SELECT cover FROM books WHERE id=?", (job["book_id"],))
-            self.store.execute(
-                "UPDATE books SET cover=? WHERE id=?", (relative, job["book_id"])
-            )
-            if old and old["cover"] and old["cover"] != relative:
+            with self.store.cover_lock:
+                ident = uid()
+                relative = f"covers/{ident}{ext}"
+                temporary = self.store.file(f"tmp/{ident}{ext}")
                 try:
-                    self.store.file(old["cover"]).unlink(missing_ok=True)
-                except OSError:
-                    pass
+                    temporary.write_bytes(image)
+                    temporary.replace(self.store.file(relative))
+                except OSError as exc:
+                    raise ValueError("封面保存失败，请检查磁盘空间") from exc
+                finally:
+                    temporary.unlink(missing_ok=True)
+                old = self.store.one("SELECT cover FROM books WHERE id=?", (job["book_id"],))
+                self.store.execute(
+                    "UPDATE books SET cover=? WHERE id=?", (relative, job["book_id"])
+                )
+                if old and old["cover"] and old["cover"] != relative:
+                    try:
+                        self.store.file(old["cover"]).unlink(missing_ok=True)
+                    except OSError:
+                        pass
             payload["cover"] = relative
             self.update(job["id"], done=1)
             self.store.execute(
@@ -647,6 +657,7 @@ class Worker:
             )
             return
         if job["kind"] == "analyze_book":
+            self.update(job["id"], remote_inflight=1)
             self.update(job["id"], stage="分析书籍资料", total=1)
             meta = providers.analyze_book(config, payload["title"], payload.get("excerpt", ""))
             self.check(job["id"])
@@ -660,6 +671,7 @@ class Worker:
             )
             return
         if job["kind"] == "analyze_chapters":
+            self.update(job["id"], remote_inflight=1)
             self.update(job["id"], stage="识别章节结构", total=1)
 
             def progress(done, total):
@@ -705,7 +717,7 @@ class Worker:
             segment = resolved_segment(segments[index], bindings, cast)
             speaker = norm_speaker(segment.get("speaker"))
             pronunciation = book_pronunciation(self.store, job["book_id"])
-            pron_snapshot = json.dumps(pronunciation, ensure_ascii=False)
+            pron_snapshot = pronunciation
             if pronunciation:
                 spoken = apply_pronunciation(segment["text"], pronunciation)
                 if spoken != segment["text"]:
@@ -819,11 +831,15 @@ class Worker:
                 # Re-read pronunciation: if it was changed between segment
                 # synthesis and promotion, the audio already reflects the OLD
                 # dict — keep the stale marker so the user knows to re-do it.
-                pron_now = json.dumps(book_pronunciation(self.store, job["book_id"]))
+                pron_now = book_pronunciation(self.store, job["book_id"])
                 dict_stable = pron_now == pron_snapshot
+                current_cast = db.execute(
+                    "SELECT cast_version FROM books WHERE id=?", (job["book_id"],)
+                ).fetchone()
+                cast_stable = current_cast and current_cast["cast_version"] == regen_cast_version
                 if promoted and stale_row and stale_row["stale_segments"]:
                     stale = json.loads(stale_row["stale_segments"])
-                    if dict_stable:
+                    if dict_stable and cast_stable:
                         stale = sorted(i for i in stale if i != index)
                     if stale:
                         db.execute(
@@ -956,13 +972,15 @@ class Worker:
             if job["chapter_id"]:
                 # Never promote stale job output over a newer text revision.
                 # The stale-segment list may only be cleared when THIS output
-                # actually got promoted AND the dict hasn't changed mid-flight
-                # (a mid-generation dict change means some segments were
-                # synthesized with the old pronunciation).
-                pron_unchanged = json.dumps(pronunciation, ensure_ascii=False) == json.dumps(
-                    book_pronunciation(self.store, job["book_id"]), ensure_ascii=False
-                )
-                if pron_unchanged:
+                # actually got promoted AND neither the pronunciation nor
+                # the cast changed mid-flight. Otherwise some segments were
+                # synthesized with old pronunciation or voice bindings.
+                pron_unchanged = pronunciation == book_pronunciation(self.store, job["book_id"])
+                current_cast = db.execute(
+                    "SELECT cast_version FROM books WHERE id=?", (job["book_id"],)
+                ).fetchone()
+                cast_unchanged = current_cast and current_cast["cast_version"] == cast_version
+                if pron_unchanged and cast_unchanged:
                     promoted = db.execute(
                         "UPDATE chapters SET active_audio=?,stale_segments=NULL WHERE id=? AND revision=?",
                         (ident, job["chapter_id"], payload["revision"]),

@@ -1922,8 +1922,11 @@ tr:hover td {
   gap: 22px;
   margin-bottom: 28px;
   border-bottom: 1px solid var(--line);
+  overflow-x: auto;
 }
 .tabs button {
+  flex-shrink: 0;
+  white-space: nowrap;
   padding: 12px 18px;
   border: 0;
   border-bottom: 2px solid transparent;

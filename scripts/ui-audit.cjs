@@ -3,7 +3,8 @@ const path = require('path');
 const root = 'http://127.0.0.1:8781';
 const out = path.resolve('output/runtime/ui-audit');
 const signIn = require('./login.cjs');
-fs = require('fs');
+const { contrast } = require('./color-contrast.cjs');
+const fs = require('fs');
 fs.mkdirSync(out, { recursive: true });
 const novel = `第一章 雾中的信\n暮色落进海面的时候，林舟收到了一封没有署名的信。\n“你还是来了。”沈雾站在门边，声音比夜色更轻。\n第二章 灯塔来客\n他沿着旧码头向前走。灯塔亮起的那一刻，远处的海面上传来悠长的汽笛声。`;
 const routes = ['library','import','chapters','cast','director','voices','queue','listen','export','settings'];
@@ -69,7 +70,7 @@ const routes = ['library','import','chapters','cast','director','voices','queue'
     return { tag: el.tagName, outline: s.outlineStyle, width: s.outlineWidth };
   });
   if (outline.outline === 'none') report.checks.push('FOCUS outline missing on tab: ' + JSON.stringify(outline));
-  // 2. Touch targets at mobile width: all visible buttons >= 40px in the smaller dimension.
+  // 2. Basic mobile target check (32px); this is not a complete 44px accessibility audit.
   await page.setViewportSize({ width: 390, height: 844 });
   const small = await page.evaluate(() => {
     const bad = [];
@@ -98,63 +99,19 @@ const routes = ['library','import','chapters','cast','director','voices','queue'
   for (const theme of ['dark', 'light']) {
     await page.evaluate(t => { document.documentElement.dataset.theme = t; }, theme);
     await page.waitForTimeout(150);
-    const pairs = await page.evaluate(() => {
-      const rootStyle = getComputedStyle(document.documentElement);
-      const v = name => rootStyle.getPropertyValue(name).trim();
-      const parse = c => {
-        let m = String(c).match(/oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)/);
-        if (m) {
-          const L = parseFloat(m[1]), C = parseFloat(m[2]), H = parseFloat(m[3]);
-          const hr = H * Math.PI / 180;
-          const a = C * Math.cos(hr), b = C * Math.sin(hr);
-          const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
-          const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
-          const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
-          const lin = x => Math.min(1, Math.max(0, x ** 3));
-          return [lin(+4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_),
-                  lin(-1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_),
-                  lin(-0.0041960863 * l_ - 0.7034186147 * m_ + 1.7076147010 * s_)];
-        }
-        m = String(c).match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
-        if (m) {
-          const lin = x => { x /= 255; return x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); };
-          return [lin(+m[1]), lin(+m[2]), lin(+m[3])];
-        }
-        return null;
-      };
-      const lum = rgb => (rgb ? 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2] : null);
-      const ratio = (fgName, bgName) => {
-        const lf = lum(parse(v(fgName))), lb = lum(parse(v(bgName)));
-        if (lf === null || lb === null) return null;
-        const hi = Math.max(lf, lb), lo = Math.min(lf, lb);
-        return (hi + 0.05) / (lo + 0.05);
-      };
-      // Self-test vectors: the oklch→sRGB conversion must match Chrome's
-      // native values for pure white/black, or every ratio is garbage.
-      const white = lum(parse('oklch(1 0 0)')), black = lum(parse('oklch(0 0 0)'));
-      const s255 = lin => Math.round((lin <= 0.0031308 ? 12.92 * lin : 1.055 * Math.pow(lin, 1 / 2.4) - 0.055) * 255);
-      const wr = s255(white), br = s255(black);
-      const selfTestOk = Math.abs(white - 1) <= 1e-6 && black === 0 && br === 0 && wr === 255;
-      return {
-        selfTestOk,
-        selfTestDebug: `white=${white} black=${black} wr=${wr} br=${br}`,
-        'text/bg': ratio('--text', '--bg'),
-        'text/panel': ratio('--text', '--panel'),
-        'text/raised': ratio('--text', '--raised'),
-        'muted/bg': ratio('--muted', '--bg'),
-        'muted/panel': ratio('--muted', '--panel'),
-        'on-lime/lime': ratio('--on-lime', '--lime'),
-        'lime-ink/active-bg': ratio('--lime-ink', '--active-bg'),
-        'mint/bg': ratio('--mint', '--bg'),
-        'red/bg': ratio('--red', '--bg'),
-        'warn/bg': ratio('--warn', '--bg'),
-      };
-    });
-    if (pairs.selfTestOk === false) {
-      report.checks.push(`CONTRAST ${theme} self-test: ${pairs.selfTestDebug}`);
-    }
-    delete pairs.selfTestOk;
-    delete pairs.selfTestDebug;
+    const colorPairs = [
+      ['text', 'bg'], ['text', 'panel'], ['text', 'raised'],
+      ['muted', 'bg'], ['muted', 'panel'], ['on-lime', 'lime'],
+      ['lime-ink', 'active-bg'], ['mint', 'bg'], ['red', 'bg'], ['warn', 'bg'],
+    ];
+    const names = [...new Set(colorPairs.flat())];
+    const colors = await page.evaluate(names => {
+      const style = getComputedStyle(document.documentElement);
+      return Object.fromEntries(names.map(name => [name, style.getPropertyValue('--' + name).trim()]));
+    }, names);
+    const pairs = Object.fromEntries(colorPairs.map(([fg, bg]) => [
+      `${fg}/${bg}`, contrast(colors[fg], colors[bg]),
+    ]));
     for (const [pair, r] of Object.entries(pairs)) {
       if (r === null) { report.checks.push(`CONTRAST ${theme} ${pair}: unparseable`); continue; }
       if (r < 4.5) report.checks.push(`CONTRAST ${theme} ${pair}: ${r.toFixed(2)}:1 BELOW 4.5`);

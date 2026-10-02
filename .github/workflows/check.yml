@@ -15,6 +15,7 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - run: python scripts/verify-version.py
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       # Tool versions match the local verification toolchain (ruff 0.16.x,
       # pytest 9.x); requirements.lock deliberately excludes dev tools.
@@ -23,7 +24,7 @@ jobs:
       # layer when dist exists, and tests should run production-like.
       - run: npm ci && npm run build
         working-directory: frontend
-      - run: ruff check app tests && python -m pytest
+      - run: ruff check app tests scripts/verify-version.py scripts/verify-upgrade.py && python -m pytest
   browser:
     # Full browser pass against the mock-provider fixture: the same 12-step
     # flow and theme/viewport audit the local verification checklist runs.
@@ -46,6 +47,7 @@ jobs:
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
+      - run: node --test scripts/color-contrast.test.cjs && node scripts/editor-regressions.cjs
       - name: Start fixture (app :8781, mock provider :18781)
         run: |
           mkdir -p output/runtime

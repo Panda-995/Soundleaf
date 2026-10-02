@@ -6,7 +6,7 @@ on:
       build_number:
         description: UGOS Pro package build number
         required: true
-        default: "0001"
+        default: "0003"
       release_tag:
         description: Optional GitHub Release tag to publish the UPK files to
         required: false
@@ -17,7 +17,6 @@ permissions:
   packages: read
 
 env:
-  APP_VERSION: 1.1.0
   GHCR_IMAGE: ghcr.io/panda-995/soundleaf
 
 jobs:
@@ -28,6 +27,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.release_tag || github.ref }}
+
+      - name: Read and verify application version
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python3 scripts/verify-version.py --github-env "$GITHUB_ENV" --release-tag "$RELEASE_TAG"
 
       - name: Prepare package directories
         run: |
@@ -71,7 +75,7 @@ jobs:
             -o ugreen/soundleaf-app/rootfs_arm64/images/soundleaf-${APP_VERSION}-arm64.tar \
             ${GHCR_IMAGE}:${APP_VERSION}
 
-      - name: Install official ugcli
+      - name: Install verified ugcli
         run: |
           tool=ugcli-v1.1.0.13-linux-amd64
           curl -fsSL --connect-timeout 15 --max-time 60 --retry 2 --retry-all-errors \

@@ -832,9 +832,9 @@ def create_app(data_dir=None, start_worker=True):
 
     @app.put("/api/books/{ident}/dict")
     def set_dict_entry(ident: str, body: dict):
-        """Upsert one entry; an empty replacement removes it. Chapters whose
-        text contains the word get their revision bumped so the UI shows which
-        audio is now outdated — nothing is re-synthesized automatically."""
+        """Upsert one entry; an empty replacement removes it. Matching segments
+        are marked stale in the same transaction, without a script revision
+        bump or automatic re-synthesis."""
         book(ident)
         word = str(body.get("word") or "").strip()
         replacement = str(body.get("replacement") or "").strip()
@@ -869,26 +869,26 @@ def create_app(data_dir=None, start_worker=True):
                 if not old:
                     return {"ok": True, "affected": 0}
                 db.execute("DELETE FROM dict WHERE book_id=? AND word=?", (ident, word))
-        # Mark ONLY the segments that contain the word stale (per-segment
-        # tracking), so regenerating them one by one clears the flag without
-        # a full-chapter regeneration. No revision bump: the audio version
-        # stays put and partial regens stay meaningful.
-        affected = 0
-        for ch in store.rows(
-            "SELECT id,segments,stale_segments FROM chapters WHERE book_id=?",
-            (ident,),
-        ):
-            segs = json.loads(ch["segments"])
-            indices = [i for i, sg in enumerate(segs) if word in (sg.get("text") or "")]
-            if not indices:
-                continue
-            prev = json.loads(ch["stale_segments"]) if ch["stale_segments"] else []
-            merged = sorted(set(prev) | set(indices))
-            store.execute(
-                "UPDATE chapters SET stale_segments=? WHERE id=?",
-                (json.dumps(merged), ch["id"]),
-            )
-            affected += len(indices)
+            # Mark ONLY the segments that contain the word stale (per-segment
+            # tracking), so regenerating them one by one clears the flag without
+            # a full-chapter regeneration. No revision bump: the audio version
+            # stays put and partial regens stay meaningful.
+            affected = 0
+            for ch in db.execute(
+                "SELECT id,segments,stale_segments FROM chapters WHERE book_id=?",
+                (ident,),
+            ):
+                segs = json.loads(ch["segments"])
+                indices = [i for i, sg in enumerate(segs) if word in (sg.get("text") or "")]
+                if not indices:
+                    continue
+                prev = json.loads(ch["stale_segments"]) if ch["stale_segments"] else []
+                merged = sorted(set(prev) | set(indices))
+                db.execute(
+                    "UPDATE chapters SET stale_segments=? WHERE id=?",
+                    (json.dumps(merged), ch["id"]),
+                )
+                affected += len(indices)
         return {"ok": True, "affected": affected}
 
     @app.post("/api/books/{ident}/analyze-book")
@@ -958,31 +958,32 @@ def create_app(data_dir=None, start_worker=True):
         """Apply AI-suggested book information: optional title rename,
         author/intro text, and — when a palette was suggested — a generated
         SVG cover drawn from it."""
-        row = book(ident)
-        title = body.title.strip() or row["title"]
-        palette = []
-        for token in body.palette:
-            if re.fullmatch(r"#?[0-9a-fA-F]{6}", token):
-                palette.append("#" + token.lstrip("#").lower())
-        cover_relative = row["cover"]
-        if len(palette) >= 2:
-            svg = render_cover_svg(
-                title, body.author.strip() or row["author"], palette, body.mood.strip()
-            )
-            cover_relative = f"covers/{uid()}.svg"
-            store.file(cover_relative).write_text(svg, encoding="utf-8")
-        intro = row["intro"] if body.intro is None else body.intro.strip()[:500]
-        with store.connect() as db:
-            db.execute(
-                "UPDATE books SET title=?,author=?,intro=?,cover=? WHERE id=?",
-                (title, body.author.strip() or row["author"], intro, cover_relative, ident),
-            )
-        if cover_relative != row["cover"] and row["cover"]:
-            try:
-                store.file(row["cover"]).unlink(missing_ok=True)
-            except OSError:
-                pass
-        return {"ok": True}
+        with store.cover_lock:
+            row = book(ident)
+            title = body.title.strip() or row["title"]
+            palette = []
+            for token in body.palette:
+                if re.fullmatch(r"#?[0-9a-fA-F]{6}", token):
+                    palette.append("#" + token.lstrip("#").lower())
+            cover_relative = row["cover"]
+            if len(palette) >= 2:
+                svg = render_cover_svg(
+                    title, body.author.strip() or row["author"], palette, body.mood.strip()
+                )
+                cover_relative = f"covers/{uid()}.svg"
+                store.file(cover_relative).write_text(svg, encoding="utf-8")
+            intro = row["intro"] if body.intro is None else body.intro.strip()[:500]
+            with store.connect() as db:
+                db.execute(
+                    "UPDATE books SET title=?,author=?,intro=?,cover=? WHERE id=?",
+                    (title, body.author.strip() or row["author"], intro, cover_relative, ident),
+                )
+            if cover_relative != row["cover"] and row["cover"]:
+                try:
+                    store.file(row["cover"]).unlink(missing_ok=True)
+                except OSError:
+                    pass
+            return {"ok": True}
 
     def structure(db, ident):
         return [
@@ -1119,29 +1120,30 @@ def create_app(data_dir=None, start_worker=True):
 
     @app.post("/api/books/{ident}/cover")
     def cover_upload(ident: str, file: UploadFile):
-        row = book(ident)
-        data = file.file.read(5 * 1024 * 1024 + 1)
-        if len(data) > 5 * 1024 * 1024:
-            raise ValueError("封面不能超过 5MB")
-        ext = (
-            ".png"
-            if data.startswith(b"\x89PNG\r\n\x1a\n")
-            else ".jpg"
-            if data.startswith(b"\xff\xd8\xff")
-            else None
-        )
-        if not ext:
-            raise ValueError("封面支持 PNG 和 JPG")
-        relative = f"covers/{uid()}{ext}"
-        store.file(relative).write_bytes(data)
-        store.execute("UPDATE books SET cover=? WHERE id=?", (relative, ident))
-        # Replace, don't accumulate: drop the previous upload's file.
-        if row["cover"] and row["cover"] != relative:
-            try:
-                store.file(row["cover"]).unlink(missing_ok=True)
-            except OSError:
-                pass  # best-effort; the DB already points at the new cover
-        return {"ok": True}
+        with store.cover_lock:
+            row = book(ident)
+            data = file.file.read(5 * 1024 * 1024 + 1)
+            if len(data) > 5 * 1024 * 1024:
+                raise ValueError("封面不能超过 5MB")
+            ext = (
+                ".png"
+                if data.startswith(b"\x89PNG\r\n\x1a\n")
+                else ".jpg"
+                if data.startswith(b"\xff\xd8\xff")
+                else None
+            )
+            if not ext:
+                raise ValueError("封面支持 PNG 和 JPG")
+            relative = f"covers/{uid()}{ext}"
+            store.file(relative).write_bytes(data)
+            store.execute("UPDATE books SET cover=? WHERE id=?", (relative, ident))
+            # Replace, don't accumulate: drop the previous upload's file.
+            if row["cover"] and row["cover"] != relative:
+                try:
+                    store.file(row["cover"]).unlink(missing_ok=True)
+                except OSError:
+                    pass  # best-effort; the DB already points at the new cover
+            return {"ok": True}
 
     @app.get("/api/books/{ident}/cover")
     def book_cover(ident: str):

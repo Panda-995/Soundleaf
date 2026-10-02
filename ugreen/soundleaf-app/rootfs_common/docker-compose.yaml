@@ -1,6 +1,6 @@
 services:
   soundleaf:
-    image: ghcr.io/panda-995/soundleaf:1.1.0
+    image: ghcr.io/panda-995/soundleaf:1.2.0
     container_name: soundleaf
     ports:
       - "8780:8780"

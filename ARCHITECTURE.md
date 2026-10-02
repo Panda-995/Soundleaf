@@ -25,6 +25,10 @@ data/ 目录：studio.sqlite3 · secret.key · sources/ audio/ cache/ exports/ c
 2. 所有 AI/合成调用都是异步任务（jobs 表），HTTP 请求只负责入队；网络不确定时进入"结果待确认"，绝不自动重发可能已计费的请求。
 3. AI 输出永不直接采用：分段拼接逐字符校验、分析逐项降级、音色经书级角色表绑定，最后在合成端再兜底一次。
 
+远端请求前先持久化 `jobs.remote_inflight=1`。语音结果写入合成缓存后清零；AI 结果与任务成功状态提交后清零。启动时所有仍为 running 且标记为 1 的任务进入 needs_review，旧数据同时按历史阶段名保护。显示阶段文字不能替代这个请求状态。本地合成不设远端标记。
+
+词典修改及对应片段失效标记在同一事务提交。音频完成时核对词典与 `cast_version` 快照；只有配置仍一致时才解除此次生成覆盖的失效标记，部分重做不能把未更新片段当作最新成品。
+
 ## 前端结构 (frontend/src/)
 
 | 文件 | 行数 | 职责 |
@@ -99,8 +103,11 @@ mkdir -p .pytest_tmp && .venv/Scripts/python -m pytest tests/ -q --basetemp=".py
 cd frontend && npm run build && cd ..
 # 集成回归（需两个终端）
 .venv/Scripts/python tests/ui_fixture.py     # 终端 1：8781 应用 + 18781 模拟服务商
-node scripts/browser-smoke.cjs               # 终端 2：12 项端到端
+node scripts/browser-smoke.cjs               # 终端 2：13 项端到端
 node scripts/ui-audit.cjs                    # 双主题 × 3 视口 + 焦点/触控/对比度
+node scripts/editor-regressions.cjs          # 独立 API mocks：草稿保存/忽略建议/重复分章/切书取消播放
+node --test scripts/color-contrast.test.cjs  # 彩色 OKLCH 参考向量与 4.5:1 阈值
+.venv/Scripts/python scripts/verify-version.py # 发布元数据一致性
 ```
 
 ## 已知取舍与遗留
@@ -108,7 +115,7 @@ node scripts/ui-audit.cjs                    # 双主题 × 3 视口 + 焦点/�
 - 界面支持中英切换（侧栏底部）；服务端错误消息仍为中文原文（后端 i18n 未做，`e.message` 直显）。语言切换时已打开的弹窗/Toast 保留旧语言，重新打开即更新。
 - `main.tsx` 仍持有全局 books/settings 与 `common` prop bag：播放器已抽出（player.ts），下一步可把 dirty 守卫上提消掉"切书丢编辑"。
 - 正式章节音频版本无自动清理（cache/ 已有容量淘汰，音频版本保留全部历史供回放）。
-- 孤儿对账（worker.sweep_orphans，随 6h cleanup 周期并在启动后首轮执行）：删除 audio/ 与 exports/ 中无 DB 行的文件（生成/重生成/导出在"写文件之后、INSERT 之前"失败或取消的残留）、covers/ 中无书籍引用的文件、清空 tmp/ 全部内容、回收 cache/*.norm 临时文件。cleanup 与任务消费同线程，扫描期间绝无任务在写。
+- 孤儿对账（worker.sweep_orphans，随 6h cleanup 周期并在启动后首轮执行）：删除 audio/ 与 exports/ 中无 DB 行的文件（生成/重生成/导出在"写文件之后、INSERT 之前"失败或取消的残留）、covers/ 中无书籍引用的文件、清空 tmp/ 全部内容、回收 cache/*.norm 临时文件。cleanup 与任务消费同线程；封面同时由 HTTP 上传/资料应用写入，因此封面文件提交、引用更新、替换清理及对账共享 `Store.cover_lock`。新增封面写入路径必须持有此锁。
 - AI 导演页任务完成回填**尊重未保存编辑**：dirty 时只合并 suggestion/restructure 字段并提示用户先保存正文，绝不整体覆盖片段（说话者/音色/情绪等编辑不可静默丢失）。regen-segment 去重按章节+片段号（不同片段号在跑时返回 409）。
 - 登录/改密失败限速与默认密码校验缓存均记录为进程内存（重启即清，单用户场景可接受）。
 - Jobs 页 2s 轮询在无任务时也在跑（自托管单用户可接受，可做退避）；AI 导演页 1.5s 共享轮询与分章页 2s 轮询同族（分章页对终态任务只拉一次详情，避免整书 payload 反复下载）。

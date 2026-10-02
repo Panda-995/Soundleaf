@@ -1,6 +1,6 @@
 # 声页 Soundleaf 绿联 UGOS Pro 应用包
 
-此目录保存声页（Soundleaf）的绿联 UGOS Pro 打包配置，支持 `amd64` 与 `arm64`。应用包基于项目公开的多架构 Docker 镜像制作，应用 ID 为 `com.panda.soundleaf`，当前版本为 `1.1.0`（构建号 `0001`）。
+此目录保存声页（Soundleaf）的绿联 UGOS Pro 打包配置，支持 `amd64` 与 `arm64`。应用包基于项目公开的多架构 Docker 镜像制作，应用 ID 为 `com.panda.soundleaf`，当前版本为 `1.2.0`（构建号 `0003`）。
 
 ## 应用信息
 
@@ -30,6 +30,6 @@ The Compose source contains Go template directives in YAML comments for UGOS Pro
 
 ## 构建方式
 
-在 GitHub Actions 中手动运行 `Build UGOS Pro UPK` 工作流。工作流会分别拉取 `1.1.0-amd64`、`1.1.0-arm64` 不可变镜像，使用绿联官方 `ugcli` 校验项目并生成两个 UPK 安装包，同时生成 `SHA256SUMS-UPK`；指定 Release tag 时自动上传到对应 Release。
+在 GitHub Actions 中手动运行 `Build UGOS Pro UPK` 工作流。版本从 `pyproject.toml` 读取并校验前端、锁文件、UPK 元数据和镜像引用；工作流分别拉取该版本的 `amd64`、`arm64` 镜像，使用绿联官方 `ugcli` 校验项目并生成两个 UPK 安装包，同时生成 `SHA256SUMS-UPK`；指定匹配版本的 Release tag 时自动上传到对应 Release。
 
 本地生成的镜像归档和 UPK 文件属于构建产物，不提交到 Git 仓库。

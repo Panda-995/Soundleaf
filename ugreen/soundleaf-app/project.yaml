@@ -38,7 +38,7 @@ parameters:
 i18n:
   en-US:
     name: Soundleaf
-    description: Soundleaf is a self-hosted audiobook studio for novels. Deploy it on a personal server or NAS and produce audiobooks chapter by chapter in the browser. Upload TXT or EPUB books with automatic chapter splitting, let AI mark dialogue and narration, assign character voices and emotion styles, and fix pronunciations with a per-book lexicon. A book-level cast library keeps every character's voice consistent across chapters, and a revised sentence can be regenerated in seconds without re-rendering the whole chapter. Export M4B audiobooks with chapter navigation or per-chapter MP3/WAV archives, with loudness normalization, real waveforms, playback progress and a persistent job queue. Works with MiniMax or OpenAI-compatible speech and chat services; keys are stored encrypted in the local data directory. Single user, single container, no GPU required. Licensed under GNU AGPL v3.0. The project is not affiliated with or partnered with the third-party brands mentioned.
+    description: Soundleaf is a self-hosted audiobook production tool for personal servers and NAS devices. Import TXT or unencrypted EPUB books, review chapter boundaries, edit narration segments and bind character voices. Optional AI services provide chapter, speaker and reading-style suggestions for review before applying them. Speech can use a configured cloud service or CPU-based local models downloaded separately, including built-in voices and reference-audio voice cloning. The application includes a pronunciation dictionary, segment regeneration, playback speed controls, progress saving, a persistent task queue and MP3, WAV or chaptered M4B export. Books, settings and audio are stored in the selected data folder. Cloud features send the selected text to the configured provider and may incur fees; model and service capabilities vary. Soundleaf is independently developed and has no affiliation, authorization or partnership with third-party brands mentioned. Licensed under GNU AGPL v3.0.
     author: 熊猫不是猫QAQ
     official: https://github.com/Panda-995/Soundleaf
     help: https://github.com/Panda-995/Soundleaf/issues
@@ -46,7 +46,7 @@ i18n:
     publisher_link: https://github.com/Panda-995
   zh-CN:
     name: 声页
-    description: 声页 Soundleaf 是自托管的小说有声书制作工作室，可部署在个人服务器或 NAS 上，通过浏览器逐章制作、试听和导出有声书。支持上传 TXT 与 EPUB 小说并自动分章，AI 自动标注对白与旁白、分配角色音色与情绪风格，读音词典可修正多音字、人名与地名；书级角色库统一管理全书音色绑定，保证同一角色跨章节音色一致，改完一句话只需几秒即可单独重合成该片段。支持 M4B 章节有声书与逐章 MP3/WAV 导出、响度归一化、真实波形试听、播放进度记忆与持久化任务队列。语音服务支持 MiniMax 及兼容 /audio/speech 的自定义接口，AI 分析支持兼容 /chat/completions 的服务，密钥加密保存在本地数据目录。单账户、单容器运行，无需 GPU。项目采用 GNU AGPL v3.0 开源，与所提及的第三方品牌不存在隶属或合作关系。
+    description: 声页 Soundleaf 是个人开发的自托管有声书制作工具，可部署在个人服务器或 NAS 上，通过浏览器导入 TXT、未加密 EPUB 小说，检查章节边界、编辑朗读片段并设置角色音色。可选 AI 服务提供分章、说话者与朗读风格建议，由用户预览后采纳；语音生成可连接自配云端接口，也可在下载所需模型后使用 CPU 本地合成，包括内置音色和参考音频音色克隆。套件提供读音词典、逐段重生成、波形试听、倍速播放、进度记忆、持久化任务队列，以及 MP3、WAV、带章节导航的 M4B 导出，用于整理文本并制作个人有声书。书籍、配置和音频保存在用户选择的数据文件夹，服务密钥加密保存。云端功能会将选定文本发送至用户配置的服务，可能产生费用；本地模型需另行下载，实际能力和耗时受设备及模型影响。项目采用 GNU AGPL v3.0 许可，由个人独立开发，与文中涉及的第三方品牌不存在隶属、授权或合作关系。
     author: 熊猫不是猫QAQ
     official: https://github.com/Panda-995/Soundleaf
     help: https://github.com/Panda-995/Soundleaf/issues
