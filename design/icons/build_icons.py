@@ -1,5 +1,4 @@
-# -*- coding: utf-8 -*-
-"""声页 (Soundleaf) 图标生成脚本。
+r"""声页 (Soundleaf) 图标生成脚本。
 
 - 圆角外形取自 G:\下载文件\icon_template.svg 的平滑 squircle 路径（64 viewBox）。
 - 背景白色 + 0.5 宽 8% 黑描边（模板蒙版内，只显示贴边内半侧）。
@@ -8,8 +7,6 @@
 """
 import io
 import re
-import struct
-import zlib
 from pathlib import Path
 
 import resvg_py
@@ -180,4 +177,4 @@ sheet.convert("RGB").save(ROOT / "icons-preview.jpg", quality=90)
 for name, sz in sizes.items():
     png_kb = (ROOT / f"{name}.png").stat().st_size / 1024
     print(f"{name}: png {png_kb:.1f} KB, svg {(ROOT / f'{name}.svg').stat().st_size / 1024:.1f} KB, rendered {sz} B")
-print("colors:", dict(INK=INK, LIME=LIME, MINT=MINT, MINT_BRIGHT=MINT_BRIGHT))
+print("colors:", {"INK": INK, "LIME": LIME, "MINT": MINT, "MINT_BRIGHT": MINT_BRIGHT})
