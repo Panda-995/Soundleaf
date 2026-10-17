@@ -4,6 +4,10 @@
 
 官网：<https://soundleaf.kicp.fun/>（源文件在 [website/](website/)，含设计说明与截图预览）
 
+## 未发布更新日志
+
+- 新增项目官网（已上线 <https://soundleaf.kicp.fun/>，源文件在 website/）：单文件零依赖官网页，双主题、交互演示播放器、情绪风格演示与部署指引；页面内置 og:url 与 canonical。
+
 ## v1.2.0 更新日志（2026-10-02）
 
 - 新增可下载的本地 TTS 模型管理、Kokoro 内置音色及 ZipVoice 参考音频音色克隆；支持云端与本地引擎切换及音色绑定恢复。
