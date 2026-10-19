@@ -1,0 +1,238 @@
+name: Sync Docker Image from Main
+
+# 让 GHCR 镜像始终跟踪 main 分支最新代码：
+# - main 上影响镜像内容的文件一有推送，就走与正式发版相同的门禁并自动发布；
+# - 每周定时重建，顺带拾取基础镜像与系统依赖的安全更新；
+# - 版本化标签（如 1.2.0）仍由 docker-publish.yml 只随 v* 标签发布，保持不可变。
+# 本工作流只写滚动标签：edge 与 latest 同内容，latest 面向 README 推荐的拉取方式。
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "frontend/**"
+      - "tests/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "requirements.lock"
+      - "Dockerfile"
+      - "docker-entrypoint.sh"
+      - ".github/workflows/docker-sync.yml"
+  schedule:
+    - cron: "17 20 * * 0" # 每周日 20:17 UTC = 周一 04:17（UTC+8）
+  workflow_dispatch:
+
+env:
+  GHCR_IMAGE: ghcr.io/panda-995/soundleaf
+  ROLLING_TAG: edge
+
+concurrency:
+  group: docker-sync
+  cancel-in-progress: true
+
+jobs:
+  # 发布门禁：与正式发版同一套静态检查、后端测试和前端构建
+  quality-gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Verify release metadata
+        run: python scripts/verify-version.py
+
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.lock && pip install pytest==9.1.1 ruff==0.16.7
+
+      - name: Build frontend
+        run: npm ci && npm run build
+        working-directory: frontend
+
+      - name: Regression checks for editing and contrast
+        run: |
+          node frontend/node_modules/playwright/cli.js install --with-deps chromium
+          node --test scripts/color-contrast.test.cjs
+          node scripts/editor-regressions.cjs
+
+      # Tests run production-like, with the built frontend present.
+      - name: Static check and tests
+        run: ruff check app tests scripts/verify-version.py scripts/verify-upgrade.py && python -m pytest
+
+  build:
+    needs: [quality-gate]
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            suffix: amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            suffix: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify source version
+        run: python3 scripts/verify-version.py --github-env "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push per-arch rolling image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          push: true
+          provenance: false
+          sbom: false
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ env.APP_VERSION }}-edge
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=AGPL-3.0-only
+          tags: |
+            ${{ env.GHCR_IMAGE }}:${{ env.ROLLING_TAG }}-${{ matrix.suffix }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify native image startup and data-dir bootstrap
+        run: |
+          docker pull ${GHCR_IMAGE}:${ROLLING_TAG}-${{ matrix.suffix }}
+          docker run -d --name soundleaf-smoke ${GHCR_IMAGE}:${ROLLING_TAG}-${{ matrix.suffix }}
+          trap 'docker logs soundleaf-smoke; docker rm -fv soundleaf-smoke' EXIT
+          docker exec -i soundleaf-smoke python - <<'PY'
+          import time, urllib.request
+          ready = False
+          for _ in range(30):
+              try:
+                  if urllib.request.urlopen('http://127.0.0.1:8780/health/ready', timeout=3).status == 200:
+                      ready = True
+                      break
+              except Exception:
+                  time.sleep(1)
+          assert ready, 'production image did not become healthy'
+          assert urllib.request.urlopen('http://127.0.0.1:8780/', timeout=5).status == 200
+          assert urllib.request.urlopen('http://127.0.0.1:8780/privacy-policy.html', timeout=5).status == 200
+          import os
+          assert os.stat('/data').st_uid == 1000, '/data must be owned by the unprivileged app user'
+          print('Native production image startup, static resources and data-dir ownership verified.')
+          PY
+
+      - name: Verify NAS-style unwritable data dir falls back instead of crash-looping
+        run: |
+          mkdir ro-data && chmod 555 ro-data
+          docker run -d --name soundleaf-ro -e ALLOW_ROOT_DATA_FALLBACK=true \
+            -v "$PWD/ro-data:/data" ${GHCR_IMAGE}:${ROLLING_TAG}-${{ matrix.suffix }}
+          trap 'docker logs soundleaf-ro; docker rm -fv soundleaf-ro; sudo rm -rf ro-data' EXIT
+          docker exec -i soundleaf-ro python - <<'PY'
+          import time, urllib.request
+          ready = False
+          for _ in range(30):
+              try:
+                  if urllib.request.urlopen('http://127.0.0.1:8780/health/ready', timeout=3).status == 200:
+                      ready = True
+                      break
+              except Exception:
+                  time.sleep(1)
+          assert ready, 'container did not survive an unwritable-by-app-user data dir'
+          print('Unwritable NAS-style data dir: app keeps running (fallback path).')
+          PY
+
+      - name: Verify v1.1.0 data upgrade and native restart persistence
+        run: |
+          image="${GHCR_IMAGE}:${ROLLING_TAG}-${{ matrix.suffix }}"
+          mkdir upgrade-data
+          docker run --rm --entrypoint python -e PYTHONPATH=/app \
+            -v "$PWD/upgrade-data:/upgrade" \
+            -v "$PWD/scripts/verify-upgrade.py:/checks/verify-upgrade.py:ro" \
+            -v "$PWD/tests/fixtures/store_v1_1_0.py:/checks/legacy.py:ro" \
+            "$image" /checks/verify-upgrade.py --data /upgrade --legacy-store /checks/legacy.py
+          docker run -d --name soundleaf-upgrade -v "$PWD/upgrade-data:/data" "$image"
+          trap 'docker logs soundleaf-upgrade; docker rm -fv soundleaf-upgrade; sudo rm -rf upgrade-data' EXIT
+          for round in 1 2; do
+            for i in $(seq 1 40); do
+              curl -fsS http://$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' soundleaf-upgrade):8780/health/ready && break
+              sleep 1
+            done
+            docker cp scripts/verify-upgrade.py soundleaf-upgrade:/tmp/verify-upgrade.py
+            docker exec -e PYTHONPATH=/app soundleaf-upgrade python /tmp/verify-upgrade.py --live-url http://127.0.0.1:8780
+            if [ "$round" = 1 ]; then docker restart soundleaf-upgrade; fi
+          done
+
+      - name: Verify fail-closed error without the fallback flag
+        run: |
+          mkdir ro-data && chmod 555 ro-data
+          trap 'sudo rm -rf ro-data' EXIT
+          set +e
+          docker run --rm -v "$PWD/ro-data:/data" ${GHCR_IMAGE}:${ROLLING_TAG}-${{ matrix.suffix }} >/dev/null 2>&1
+          code=$?
+          set -e
+          test "$code" = "73" || { echo "expected exit 73 on unwritable data dir, got $code"; exit 1; }
+          echo 'Unwritable data dir without fallback: exits 73 with a clear error (no crash loop).'
+
+  merge-manifest:
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read and verify application version
+        run: python3 scripts/verify-version.py --github-env "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push rolling multi-arch manifest (edge + latest)
+        run: |
+          docker buildx imagetools create \
+            -t ${{ env.GHCR_IMAGE }}:${{ env.ROLLING_TAG }} \
+            -t ${{ env.GHCR_IMAGE }}:latest \
+            ${{ env.GHCR_IMAGE }}:${{ env.ROLLING_TAG }}-amd64 \
+            ${{ env.GHCR_IMAGE }}:${{ env.ROLLING_TAG }}-arm64
+
+      - name: Verify published rolling image
+        run: |
+          docker buildx imagetools inspect ${{ env.GHCR_IMAGE }}:${{ env.ROLLING_TAG }}
+          docker buildx imagetools inspect ${{ env.GHCR_IMAGE }}:latest
