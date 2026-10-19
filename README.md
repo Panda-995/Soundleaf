@@ -52,6 +52,8 @@ docker run -d --name soundleaf -p 8780:8780 \
   ghcr.io/panda-995/soundleaf:latest
 ```
 
+`latest` 与 `edge` 为滚动标签：main 分支出现影响镜像的更新并通过完整门禁后自动发布，两者内容一致；固定版本部署请使用 Release 版本号标签（如 `1.2.0`），仅随正式发布更新。
+
 容器默认以 root 启动，入口脚本会把数据目录属主调整为 1000:1000 后降权运行；用 compose 并指定 `user` 时按指定身份直接运行。也可以继续从源码构建：
 
 直接使用已发布镜像可执行 `docker compose -f compose.release.yaml up -d`；该文件固定 1.2.0，先按下文创建数据目录并授予 APP_UID/APP_GID 对应用户读写权限。Release 部署 ZIP 中已将它命名为 `compose.yaml`，可直接执行 `docker compose up -d`。
